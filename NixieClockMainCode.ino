@@ -1,8 +1,9 @@
 //Headers
-#include <WiFi.h> //<Wifi.h> for esp32 and <ESP8266WiFi.h> for esp8266 
-#include <WiFiUdp.h>
-#include <NTPClient.h>
-#include <Wire.h>
+#include <ESP8266WiFi.h> //<Wifi.h> for esp32 and <ESP8266WiFi.h> for esp8266 
+#include <WiFiUdp.h> //NTP
+#include <NTPClient.h> //NTP
+#include <Wire.h> //I2C
+#include <WS2812FX.h> //WS2812
 
 //Pin Definitions
 #define bootControl     0 //ref to ds
@@ -22,10 +23,6 @@
 #define pwrLed         26 //Power LED
 #define comLed         27 //Comms LED
 
-// Define NTP Client to connect to time server
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org");
-
 //Define cross-function variables
 int currentHour;  
 int currentMinute; 
@@ -36,6 +33,13 @@ int currentSecondBCD;
 int rtcHour;
 int rtcMinute;
 int rtcSecond;
+
+// Define NTP Client to connect to time server
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org");
+
+//Define WS2812 RGB LED lib instance 
+WS2812FX ws2812fx = WS2812FX(6, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 void setup() {
   Serial.begin(115200);
@@ -50,6 +54,8 @@ void setup() {
   pinMode(devLed,OUTPUT);
   pinMode(pwrLed,OUTPUT);
   pinMode(comLed,OUTPUT);
+
+  enablePowerSupplies(); //Turn on the 5V and 170V supplies
   
   connectToWiFiNetwork();
   initializeNTP();
@@ -70,6 +76,9 @@ void setup() {
 
   //Update RTC with current time
   updateCurrentTimeToRTC();
+
+  //Initiate WS2812 RGB LEDs
+  initiateWS2812();
 }
 
 void loop() {
@@ -77,6 +86,14 @@ void loop() {
   readCurrentTimeFromRTC();
 
   //Display current time on nixies
+
+  //WS2812 RGB LED instance
+  ws2812fx.service();
+}
+
+void enablePowerSupplies() {
+  digitalWrite(en5V, HIGH);
+  digitalWrite(en170V, LOW);
 }
 
 void connectToWiFiNetwork() {
@@ -246,6 +263,7 @@ void readCurrentTimeFromRTC() {
     rtcSecond = (Wire.read());
   }
 
+/*
   //Display RTC time on serial monitor (for debugging only)
   Serial.println();
   Serial.print("RTC: ");
@@ -254,8 +272,42 @@ void readCurrentTimeFromRTC() {
   Serial.print(rtcMinute);
   Serial.print(":");
   Serial.print(rtcSecond);
+*/
 }
 
-//up next
-//led driver function --- to check sub system statuses and set leds in void setup
-//use interrupt to toggle leds if subsystems fail!!!
+//THIS FUNCTION IS INCOMPLETE AND UNTESTED
+void statusLedsController() {
+  //Status led driver function --- to check sub system statuses and set leds in void setup
+  //Use interrupt to toggle leds if subsystems fail!!!
+  
+  //Power Sub-System LED - LED on if 5V supply is present
+  if(digitalRead(supervisor5V) == HIGH) {
+    digitalWrite(pwrLed, HIGH);
+  }
+}
+
+//THIS FUNCTION IS UNTESTED
+void initiateWS2812() {
+  //Initiate WS2812 RGB LEDs
+  ws2812fx.init();
+  ws2812fx.setBrightness(100);
+  ws2812fx.setSpeed(200);
+  ws2812fx.setMode(FX_MODE_RAINBOW_CYCLE);
+  ws2812fx.start();
+}
+
+//THIS FUNCTION IS INCOMPLETE AND UNTESTED
+void disableSubsystems() {
+  //This fucntion will disable all subsystems when there's an interrupt indicating a sub system fault
+
+  //Disable power sub systems
+  digitalWrite(en170V, HIGH);
+  digitalWrite(en5V, LOW);
+
+  //Disable RGB LEDs
+}
+
+//THIS FUNCTION IS INCOMPLETE AND UNTESTED
+void tempMonitor() {
+  //Monitors temperature hourly and turns off nixies and RGB LEDs if temp too high   
+}
