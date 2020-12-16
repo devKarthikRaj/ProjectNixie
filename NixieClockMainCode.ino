@@ -6,7 +6,7 @@
 #include <WS2812FX.h> //WS2812
 
 //Pin Definitions
-#define bootControl     0 //ref to ds
+#define bootControl     0 //ref to ds - not req atm
 #define usbSerialTx     1 //Used for code upload from programmer
 #define rtcInt          2 //Unused for now
 #define usbSerialRx     3 //Used for code upload from programmer
@@ -17,11 +17,11 @@
 #define twimIntSCL     18 //I2C SCK 
 #define twimIntSDA     19 //I2C SDA
 #define ledBus         21 //WS2812 RGBLED Control Bus
-#define sysLed         22 //System LED
-#define oprLed         23 //Operation LED
-#define devLed         25 //Dev LED
-#define pwrLed         26 //Power LED
-#define comLed         27 //Comms LED
+#define sysLed         22 //System LED - UNUSED FOR NOW 
+#define oprLed         23 //Operation LED for RTC status
+#define devLed         25 //Dev LED - UNUSED FOR NOW
+#define pwrLed         26 //Power LED for power system (5V & 170V) status
+#define comLed         27 //Comms LED for WiFi connection
 
 //Define cross-function variables
 int currentHour;  
@@ -33,13 +33,14 @@ int currentSecondBCD;
 int rtcHour;
 int rtcMinute;
 int rtcSecond;
+String wifiStatus;
 
 // Define NTP Client to connect to time server
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
 //Define WS2812 RGB LED lib instance 
-WS2812FX ws2812fx = WS2812FX(6, LED_PIN, NEO_GRB + NEO_KHZ800);
+WS2812FX ws2812fx = WS2812FX(6, ledBus, NEO_GRB + NEO_KHZ800);
 
 void setup() {
   Serial.begin(115200);
@@ -79,6 +80,9 @@ void setup() {
 
   //Initiate WS2812 RGB LEDs
   initiateWS2812();
+
+  //Interrupt Definitions
+  attachInterrupt(digitalPinToInterrupt(supervisor5V), statusLedsController, CHANGE); 
 }
 
 void loop() {
@@ -113,13 +117,15 @@ void connectToWiFiNetwork() {
 
   //Setting the ESP8266 to act as a WiFi client
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  wifiStatus = WiFi.begin(ssid, password);
 
   while(WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.println("Connecting...");
+    digitalWrite(comLed,LOW); //Comms LED low indicating that not connected to any network
   }
 
+  digitalWrite(comLed,HIGH); //Comms LED high indicating that successfully connected to network
   Serial.println("");
   Serial.println("WiFi Connected");
   Serial.print("IP address: ");
@@ -263,7 +269,7 @@ void readCurrentTimeFromRTC() {
     rtcSecond = (Wire.read());
   }
 
-/*
+  /*
   //Display RTC time on serial monitor (for debugging only)
   Serial.println();
   Serial.print("RTC: ");
@@ -272,12 +278,21 @@ void readCurrentTimeFromRTC() {
   Serial.print(rtcMinute);
   Serial.print(":");
   Serial.print(rtcSecond);
-*/
+  */
+  
+  if(rtcHour && rtcMinute && rtcSecond != 0) {
+    digitalWrite(oprLed,HIGH);
+    //Serial.println("opr high"); // For Debugging Only
+  }
+  else {
+    digitalWrite(oprLed,LOW);
+    //Serial.println("opr low"); // For Debugging Only
+  }
 }
 
 //THIS FUNCTION IS INCOMPLETE AND UNTESTED
-void statusLedsController() {
-  //Status led driver function --- to check sub system statuses and set leds in void setup
+ICACHE_RAM_ATTR void statusLedsController() {
+  //Check sub system statuses and set LEDs in void setup
   //Use interrupt to toggle leds if subsystems fail!!!
   
   //Power Sub-System LED - LED on if 5V supply is present
