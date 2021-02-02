@@ -1,7 +1,4 @@
 //Headers
-#include <ESP8266WiFi.h> //<Wifi.h> for esp32 and <ESP8266WiFi.h> for esp8266 
-#include <WiFiUdp.h> //NTP
-#include <NTPClient.h> //NTP
 #include <Wire.h> //I2C
 #include <WS2812FX.h> //WS2812
 
@@ -24,20 +21,9 @@
 #define comLed         27 //Comms LED for WiFi connection
 
 //Define cross-function variables
-int currentHour;  
-int currentMinute; 
-int currentSecond;
-int currentHourBCD;
-int currentMinuteBCD;
-int currentSecondBCD;
 int rtcHour;
 int rtcMinute;
 int rtcSecond;
-String wifiStatus;
-
-// Define NTP Client to connect to time server
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
 //Define WS2812 RGB LED lib instance 
 WS2812FX ws2812fx = WS2812FX(6, ledBus, NEO_GRB + NEO_KHZ800);
@@ -45,7 +31,7 @@ WS2812FX ws2812fx = WS2812FX(6, ledBus, NEO_GRB + NEO_KHZ800);
 void setup() {
   Serial.begin(115200);
 
-  //Input/Output Definitions
+  //IO Definitions
   pinMode(en170V,OUTPUT);
   pinMode(en5V,OUTPUT);
   pinMode(supervisor5V,INPUT);
@@ -57,23 +43,12 @@ void setup() {
   pinMode(comLed,OUTPUT);
 
   enablePowerSupplies(); //Turn on the 5V and 170V supplies
-  
-  connectToWiFiNetwork();
-  initializeNTP();
 
   //Initialize I2C - initiate wire library and join I2C bus as master
   Wire.begin(twimIntSDA, twimIntSCL);
 
   //Configure RTC control registers 1,2 & 3 
   rtcInitialConfig();
-
-  //Fetch current time from online server
-  fetchNTPTime();
-
-  //Format server time to send to RTC
-  currentHourBCD = formatCurrentHourToBCD();
-  currentMinuteBCD = formatCurrentMinuteToBCD();
-  currentSecondBCD = formatCurrentSecondToBCD();
 
   //Update RTC with current time
   updateCurrentTimeToRTC();
@@ -95,58 +70,10 @@ void loop() {
   ws2812fx.service();
 }
 
+// THIS FUNCTION IS YET TO BE TESTED
 void enablePowerSupplies() {
   digitalWrite(en5V, HIGH);
   digitalWrite(en170V, LOW);
-}
-
-void connectToWiFiNetwork() {
-  #ifndef STASSID
-  #define STASSID "dlink-193C" //STASSID = Station SSID
-  #define STAPSK "mczep88481" //STA PSK = Station Passkey
-  #endif
-  
-  const char* ssid = STASSID;
-  const char* password = STAPSK;
-
-  //Connceting to specified Wifi network
-  Serial.println();
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
-  //Setting the ESP8266 to act as a WiFi client
-  WiFi.mode(WIFI_STA);
-  wifiStatus = WiFi.begin(ssid, password);
-
-  while(WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.println("Connecting...");
-    digitalWrite(comLed,LOW); //Comms LED low indicating that not connected to any network
-  }
-
-  digitalWrite(comLed,HIGH); //Comms LED high indicating that successfully connected to network
-  Serial.println("");
-  Serial.println("WiFi Connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-}
-
-void initializeNTP() {
-  // Initialize a NTPClient to get time
-  timeClient.begin();
-  //timeClient.setTimeOffset();
-}
-
-void fetchNTPTime() {
-  //Use timer interrupt to run this function once every hour
-  timeClient.update();
-
-  unsigned long epochTime = timeClient.getEpochTime();
-  String formattedTime = timeClient.getFormattedTime(); 
-  currentHour = (timeClient.getHours()+8);
-  currentMinute = timeClient.getMinutes();
-  currentSecond = timeClient.getSeconds();
 }
 
 void rtcInitialConfig() {
@@ -170,74 +97,23 @@ void rtcInitialConfig() {
   Wire.endTransmission();
 }
 
-int formatCurrentSecondToBCD() {
-  int currentSecondBCD1 = currentSecond/10;
-  int currentSecondBCD2 = currentSecond%10;
-  int currentSecondBCD12;
-
-  bitWrite(currentSecondBCD12, 7, 0);
-  bitWrite(currentSecondBCD12, 6, bitRead(currentSecondBCD1,2));
-  bitWrite(currentSecondBCD12, 5, bitRead(currentSecondBCD1,1));
-  bitWrite(currentSecondBCD12, 4, bitRead(currentSecondBCD1,0));
-  bitWrite(currentSecondBCD12, 3, bitRead(currentSecondBCD2,3));
-  bitWrite(currentSecondBCD12, 2, bitRead(currentSecondBCD2,2));
-  bitWrite(currentSecondBCD12, 1, bitRead(currentSecondBCD2,1));
-  bitWrite(currentSecondBCD12, 0, bitRead(currentSecondBCD2,0));
-
-  return currentSecondBCD12;
-}
-
-int formatCurrentMinuteToBCD() {
-  int currentMinuteBCD1 = currentMinute/10;
-  int currentMinuteBCD2 = currentMinute%10;
-  int currentMinuteBCD12;
-  
-  bitWrite(currentMinuteBCD12, 7, 0);
-  bitWrite(currentMinuteBCD12, 6, bitRead(currentMinuteBCD1,2));
-  bitWrite(currentMinuteBCD12, 5, bitRead(currentMinuteBCD1,1));
-  bitWrite(currentMinuteBCD12, 4, bitRead(currentMinuteBCD1,0));
-  bitWrite(currentMinuteBCD12, 3, bitRead(currentMinuteBCD2,3));
-  bitWrite(currentMinuteBCD12, 2, bitRead(currentMinuteBCD2,2));
-  bitWrite(currentMinuteBCD12, 1, bitRead(currentMinuteBCD2,1));
-  bitWrite(currentMinuteBCD12, 0, bitRead(currentMinuteBCD2,0));
-
-  return currentMinuteBCD12;
-}
-
-int formatCurrentHourToBCD() {
-  int currentHourBCD1 = currentHour/10;
-  int currentHourBCD2 = currentHour%10;
-  int currentHourBCD12;
-  
-  bitWrite(currentHourBCD12, 7, 0);
-  bitWrite(currentHourBCD12, 6, bitRead(currentHourBCD1,2));
-  bitWrite(currentHourBCD12, 5, bitRead(currentHourBCD1,1));
-  bitWrite(currentHourBCD12, 4, bitRead(currentHourBCD1,0));
-  bitWrite(currentHourBCD12, 3, bitRead(currentHourBCD2,3));
-  bitWrite(currentHourBCD12, 2, bitRead(currentHourBCD2,2));
-  bitWrite(currentHourBCD12, 1, bitRead(currentHourBCD2,1));
-  bitWrite(currentHourBCD12, 0, bitRead(currentHourBCD2,0));
-
-  return currentHourBCD12;
-}
-
 void updateCurrentTimeToRTC() {
   //Update seconds register in RTC
   Wire.beginTransmission(0x51);
   Wire.write(0x03);
-  Wire.write(currentSecondBCD);
+  Wire.write(); //Write seconds in the parenthesis in BCD
   Wire.endTransmission();
 
   //Update minutes register in RTC
   Wire.beginTransmission(0x51);
   Wire.write(0x04);
-  Wire.write(currentMinuteBCD);
+  Wire.write(); //Write minutes in the parenthesis in BCD
   Wire.endTransmission();
 
   //Update hours register in RTC
   Wire.beginTransmission(0x51);
   Wire.write(0x05);
-  Wire.write(currentHourBCD);
+  Wire.write(); //Write hours in the parenthesis in BCD
   Wire.endTransmission();
 }
 
@@ -290,7 +166,7 @@ void readCurrentTimeFromRTC() {
   }
 }
 
-//THIS FUNCTION IS INCOMPLETE AND UNTESTED
+//THIS FUNCTION IS UNTESTED
 ICACHE_RAM_ATTR void statusLedsController() {
   //Check sub system statuses and set LEDs in void setup
   //Use interrupt to toggle leds if subsystems fail!!!
@@ -323,6 +199,6 @@ void disableSubsystems() {
 }
 
 //THIS FUNCTION IS INCOMPLETE AND UNTESTED
-void tempMonitor() {
-  //Monitors temperature hourly and turns off nixies and RGB LEDs if temp too high   
+void tempMonitor() {s temperature hourly and turns 
+  //Monitoroff nixies and RGB LEDs if temp too high   
 }
