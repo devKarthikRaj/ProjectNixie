@@ -1,14 +1,17 @@
-//Headers
-#include <Wire.h> //I2C
-#include <WS2812FX.h> //WS2812
+//Use NodeMCU-32S for Nixie Hardware
+//Use ESP32 DEV MODULE for esp32 dev board 
 
-//Pin Definitions
-#define bootControl     0 //ref to ds - not req atm
-#define usbSerialTx     1 //Used for code upload from programmer
-#define rtcInt          2 //Unused for now
-#define usbSerialRx     3 //Used for code upload from programmer
-#define en170V          4 //170V enable - Pull to low to enable
-#define errata1nc       5 //NC
+//Headers
+//#include <Wire.h> //I2C lib
+#include <pcf2129rtc.h> //RTC lib
+
+//Pin Definitions 
+#define bootControl     0 //ref to ds - not req atm                                 (NOT USED IN THIS CODE)
+#define usbSerialTx     1 //Used for code upload from programmer                    (NOT USED IN THIS CODE)
+#define rtcInt          2 //Unused for now                                          (NOT USED IN THIS CODE)
+#define usbSerialRx     3 //Used for code upload from programmer                    (NOT USED IN THIS CODE)
+#define en170V          4 //170V enable - Pull to low to enable               
+#define errata1nc       5 //NC                                                      (NOT USED IN THIS CODE)
 #define en5V           16 //5V enable - Pull to high to enable
 #define supervisor5V   17 //5V rail blackout indicator - If low, 5V blackout!!!
 #define twimIntSCL     18 //I2C SCK 
@@ -20,13 +23,14 @@
 #define pwrLed         26 //Power LED for power system (5V & 170V) status
 #define comLed         27 //Comms LED for WiFi connection
 
-//Define cross-function variables
+//Defining Cross-Funtion Vars
 int rtcHour;
 int rtcMinute;
 int rtcSecond;
 
-//Define WS2812 RGB LED lib instance 
-WS2812FX ws2812fx = WS2812FX(6, ledBus, NEO_GRB + NEO_KHZ800);
+//Creating an instance of the PCF2129 RTC Lib
+//pcf2129rtc name_of_instance(sda_pin, scl_pin);
+pcf2129rtc pcf2129rtcinstance(twimIntSDA, twimIntSCL);
 
 void setup() {
   Serial.begin(115200);
@@ -42,149 +46,61 @@ void setup() {
   pinMode(pwrLed,OUTPUT);
   pinMode(comLed,OUTPUT);
 
-  enablePowerSupplies(); //Turn on the 5V and 170V supplies
+  enablePowerSupplies(); //Turn on the 5V and 170V supplies (3.3V is auto turned on cuz ESP32 run off it)
 
-  //Initialize I2C - initiate wire library and join I2C bus as master
-  Wire.begin(twimIntSDA, twimIntSCL);
-
-  //Configure RTC control registers 1,2 & 3 
-  rtcInitialConfig();
+  //RTC Initial Config
+  pcf2129rtcinstance.rtcInitialConfig(); 
 
   //Update RTC with current time
-  updateCurrentTimeToRTC();
-
-  //Initiate WS2812 RGB LEDs
-  initiateWS2812();
+  //Manually write the hour,min,sec (for debugging only)
+  int manuallyWrittenHour = 1;
+  int manuallyWrittenMin = 1;
+  int manuallyWrittenSec = 1;
+  pcf2129rtcinstance.updateCurrentTimeToRTC(manuallyWrittenHour, manuallyWrittenMin, manuallyWrittenSec);
 
   //Interrupt Definitions
+  //attachInterrupt(digitalPinToInterrupt(PIN_NUM), ISR, mode)
+  //Mode: LOW/CHANGE/RISING/FALLING/*HIGH(Only for Due,Zero,MKR1000 boards)* 
   attachInterrupt(digitalPinToInterrupt(supervisor5V), statusLedsController, CHANGE); 
 }
 
 void loop() {
   //Obtain current time from RTC
-  readCurrentTimeFromRTC();
+  //readCurrentTimeFromRTC();
+  int rtcHr = pcf2129rtcinstance.readRtcHour();
+  int rtcMin = pcf2129rtcinstance.readRtcMin();
+  int rtcSec = pcf2129rtcinstance.readRtcSec();
+
+  //For debugging purposes only
+  //Serial.println(rtcHr);
+  //Serial.print(rtcMin);
+  Serial.print(rtcSec);
 
   //Display current time on nixies
-
-  //WS2812 RGB LED instance
-  ws2812fx.service();
+  //TBD...
 }
 
-// THIS FUNCTION IS YET TO BE TESTED
+//Function Definitions
+//--------------------
 void enablePowerSupplies() {
   digitalWrite(en5V, HIGH);
-  digitalWrite(en170V, LOW);
-}
-
-void rtcInitialConfig() {
-  //RTC initial config 
-  //Control reg 1 config
-  Wire.beginTransmission(0x51); //Start + write slave address
-  Wire.write(0x00); //Write reg address
-  Wire.write(0x00); //Write data
-  Wire.endTransmission(); 
-  
-  //Control reg 2 config
-  Wire.beginTransmission(0xA2); 
-  Wire.write(0x01); 
-  Wire.write(0x00); 
-  Wire.endTransmission();
-
-  //Control reg 3 config
-  Wire.beginTransmission(0xA2);
-  Wire.write(0x02); 
-  Wire.write(0xE0); 
-  Wire.endTransmission();
-}
-
-void updateCurrentTimeToRTC() {
-  //Update seconds register in RTC
-  Wire.beginTransmission(0x51);
-  Wire.write(0x03);
-  Wire.write(); //Write seconds in the parenthesis in BCD
-  Wire.endTransmission();
-
-  //Update minutes register in RTC
-  Wire.beginTransmission(0x51);
-  Wire.write(0x04);
-  Wire.write(); //Write minutes in the parenthesis in BCD
-  Wire.endTransmission();
-
-  //Update hours register in RTC
-  Wire.beginTransmission(0x51);
-  Wire.write(0x05);
-  Wire.write(); //Write hours in the parenthesis in BCD
-  Wire.endTransmission();
-}
-
-void readCurrentTimeFromRTC() {
-  //Read hour from RTC
-  Wire.beginTransmission(0x51);
-  Wire.write(0x05);
-  Wire.endTransmission();
-  Wire.requestFrom(0x51,1);
-  if(Wire.available()) {
-    rtcHour = (Wire.read());
-  }
-
-  //Read minute from RTC
-  Wire.beginTransmission(0x51);
-  Wire.write(0x04);
-  Wire.endTransmission();
-  Wire.requestFrom(0x51,1);
-  if(Wire.available()) {
-    rtcMinute = (Wire.read());
-  }
-
-  //Read second from RTC
-  Wire.beginTransmission(0x51);
-  Wire.write(0x03);
-  Wire.endTransmission();
-  Wire.requestFrom(0x51,1);
-  if(Wire.available()) {
-    rtcSecond = (Wire.read());
-  }
-
-  /*
-  //Display RTC time on serial monitor (for debugging only)
-  Serial.println();
-  Serial.print("RTC: ");
-  Serial.print(rtcHour);
-  Serial.print(":");
-  Serial.print(rtcMinute);
-  Serial.print(":");
-  Serial.print(rtcSecond);
-  */
-  
-  if(rtcHour && rtcMinute && rtcSecond != 0) {
-    digitalWrite(oprLed,HIGH);
-    //Serial.println("opr high"); // For Debugging Only
-  }
-  else {
-    digitalWrite(oprLed,LOW);
-    //Serial.println("opr low"); // For Debugging Only
-  }
+  digitalWrite(en170V, LOW); 
 }
 
 //THIS FUNCTION IS UNTESTED
 ICACHE_RAM_ATTR void statusLedsController() {
   //Check sub system statuses and set LEDs in void setup
-  //Use interrupt to toggle leds if subsystems fail!!!
+  //Use interrupt to toggle LEDs if subsystems fail!!!
   
   //Power Sub-System LED - LED on if 5V supply is present
   if(digitalRead(supervisor5V) == HIGH) {
     digitalWrite(pwrLed, HIGH);
+    //Serial.println("5V RAIL ACTIVE");
   }
-}
-
-//THIS FUNCTION IS UNTESTED
-void initiateWS2812() {
-  //Initiate WS2812 RGB LEDs
-  ws2812fx.init();
-  ws2812fx.setBrightness(100);
-  ws2812fx.setSpeed(200);
-  ws2812fx.setMode(FX_MODE_RAINBOW_CYCLE);
-  ws2812fx.start();
+  else {
+    digitalWrite(pwrLed, LOW);
+    //Serial.println("5V RAIL INACTIVE!!!");
+  }
 }
 
 //THIS FUNCTION IS INCOMPLETE AND UNTESTED
@@ -196,9 +112,4 @@ void disableSubsystems() {
   digitalWrite(en5V, LOW);
 
   //Disable RGB LEDs
-}
-
-//THIS FUNCTION IS INCOMPLETE AND UNTESTED
-void tempMonitor() {s temperature hourly and turns 
-  //Monitoroff nixies and RGB LEDs if temp too high   
 }
