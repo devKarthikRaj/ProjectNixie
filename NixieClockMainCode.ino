@@ -4,11 +4,12 @@
 //Headers
 //#include <Wire.h> //I2C lib
 #include <pcf2129rtc.h> //RTC lib
+#include "BluetoothSerial.h" //Bluetooth lib
 
 //Pin Definitions 
 #define bootControl     0 //ref to ds - not req atm                                 (NOT USED IN THIS CODE)
 #define usbSerialTx     1 //Used for code upload from programmer                    (NOT USED IN THIS CODE)
-#define rtcInt          2 //Unused for now                                          (NOT USED IN THIS CODE)
+#define rtcInt          2 //RTC Interrupt 
 #define usbSerialRx     3 //Used for code upload from programmer                    (NOT USED IN THIS CODE)
 #define en170V          4 //170V enable - Pull to low to enable               
 #define errata1nc       5 //NC                                                      (NOT USED IN THIS CODE)
@@ -32,10 +33,23 @@ int rtcSecond;
 //pcf2129rtc name_of_instance(sda_pin, scl_pin);
 pcf2129rtc pcf2129rtcinstance(twimIntSDA, twimIntSCL);
 
+BluetoothSerial espBt; //Declare BT object
+
+//Unique code that'll be known only to user or will be labelled on the hardware itself
+String uniqueCode = "UNIQUE_CODE";
+
+bool flag = false;
+//rtcIntISR
+void IRAM_ATTR rtcIntISR() {
+  pcf2129rtcinstance.clearMsf();
+  flag = true;
+}
+
 void setup() {
   Serial.begin(115200);
 
   //IO Definitions
+  pinMode(rtcInt,INPUT_PULLUP);
   pinMode(en170V,OUTPUT);
   pinMode(en5V,OUTPUT);
   pinMode(supervisor5V,INPUT);
@@ -47,6 +61,9 @@ void setup() {
   pinMode(comLed,OUTPUT);
 
   enablePowerSupplies(); //Turn on the 5V and 170V supplies (3.3V is auto turned on cuz ESP32 run off it)
+
+  // Name of BT signal
+  espBt.begin("ESP32_BT_Control"); //This will be the name shown to other BT devices in the BT network
 
   //RTC Initial Config
   pcf2129rtcinstance.rtcInitialConfig(); 
@@ -61,23 +78,38 @@ void setup() {
   //Interrupt Definitions
   //attachInterrupt(digitalPinToInterrupt(PIN_NUM), ISR, mode)
   //Mode: LOW/CHANGE/RISING/FALLING/*HIGH(Only for Due,Zero,MKR1000 boards)* 
-  attachInterrupt(digitalPinToInterrupt(supervisor5V), statusLedsController, CHANGE); 
+  attachInterrupt(digitalPinToInterrupt(supervisor5V), statusLedsController, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(rtcInt),rtcIntISR, FALLING);
 }
 
 void loop() {
-  //Obtain current time from RTC
-  //readCurrentTimeFromRTC();
-  int rtcHr = pcf2129rtcinstance.readRtcHour();
-  int rtcMin = pcf2129rtcinstance.readRtcMin();
-  int rtcSec = pcf2129rtcinstance.readRtcSec();
+  //Serial.println("Main");
+  if(flag == true) {
+    Serial.println("Int trigg'ed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    digitalWrite(devLed,HIGH);
+    delay(200);
+    digitalWrite(devLed,LOW);
+    flag = false;
+  }
+  //Until hardware verification is successful... hang at this line...
+  //while(VerifyBtConnection()!=true){};
+  //Serial.println("Hardware verification successful");
 
-  //For debugging purposes only
-  //Serial.println(rtcHr);
-  //Serial.print(rtcMin);
-  Serial.print(rtcSec);
-
-  //Display current time on nixies
-  //TBD...
+  //while(1) {
+    //Obtain current time from RTC
+    //readCurrentTimeFromRTC();
+    //int rtcHr = pcf2129rtcinstance.readRtcHour();
+    //int rtcMin = pcf2129rtcinstance.readRtcMin();
+    //int rtcSec = pcf2129rtcinstance.readRtcSec();
+  
+    //For debugging purposes only
+    //Serial.println(rtcHr);
+    //Serial.print(rtcMin);
+    //Serial.println(rtcSec);
+  
+    //Display current time on nixies
+    //TBD...
+  //}
 }
 
 //Function Definitions
@@ -87,8 +119,60 @@ void enablePowerSupplies() {
   digitalWrite(en170V, LOW); 
 }
 
+//Run this function until it returns true
+bool VerifyBtConnection() {
+  //Security Trooper State Machine!!! Dedicating this to STs in the SAF hehe :)
+  int state = 0; //Set the starting state of the state machine
+  for(int i=0; i<3; i++) {
+    switch(state) {
+      case 0:
+      //Hang here till a remote device connects...
+      Serial.println("Waiting for connection from remote device...");
+      while(!espBt.hasClient()){};
+
+      espBt.print("REQ_CHECK_1");
+
+      //Hang here till level 1 verification key is received... (auto sent by hardware)
+      Serial.println("Waiting for Level 1 verification key from remote device...");
+      while(!espBt.available()){};
+      
+      if(espBt.readString() == "REQ_CONN") {
+        Serial.println("Level 1 Pass");
+        espBt.print("REQ_CHECK_2"); //Tell hardware that level 1 verification is successful and send level 2 verification
+        state = 1; 
+      }
+      else {
+        Serial.println("Level 1 Fail");
+        state = 0;
+      }
+      break;
+      
+      case 1:
+      //Hang here till Level 2 verification key is received... (keyed in by user)
+      Serial.println("Waiting for Level 2 verification key from remote device");
+      while(!espBt.available()){};
+
+      if(espBt.readString() == uniqueCode) {
+        Serial.println("Level 2 Pass");
+        espBt.print("CONN_PASS"); //Tell the hardware that level 2 verification is successful 
+        state = 2;
+      }
+      else {
+        Serial.println("Level 2 Fail");
+        espBt.print("CONN_FAIL"); //Tell the hardware that level 2 verification is unsuccessful
+        state = 0;
+      }
+      break;
+  
+      case 2:
+      return true;
+      break;
+    }
+  }
+}
+
 //THIS FUNCTION IS UNTESTED
-ICACHE_RAM_ATTR void statusLedsController() {
+IRAM_ATTR void statusLedsController() {
   //Check sub system statuses and set LEDs in void setup
   //Use interrupt to toggle LEDs if subsystems fail!!!
   
