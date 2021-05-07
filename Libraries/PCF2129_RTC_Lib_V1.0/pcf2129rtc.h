@@ -18,7 +18,7 @@ class pcf2129rtc
 
     //RTC initial config
     void rtcInitialConfig();
-    
+            
     //Write current real world time to RTC
     void updateCurrentTimeToRTC(int initHour, int initMin, int initSec);  
     
@@ -43,10 +43,15 @@ class pcf2129rtc
     int _sda;
     int _scl;
 
-    //RTC Write Time Vars
+    //RTC Write Time Vars in decimal
     int _initHour;
     int _initMin;
     int _initSec;
+
+    //RTC Write Time Vars in BCD
+    int _bcdHour;
+    int _bcdMin;
+    int _bcdSec;
 
     //RTC Read Time Vars
     //Time in Integer (need to be converted to BCD to make sense)
@@ -62,6 +67,12 @@ class pcf2129rtc
     int _rtcMinBCD1;
     int _rtcHourBCD0;
     int _rtcHourBCD1; 
+
+    //Convert decimal integer to BCD integer function
+    int decToBcd(int dec);
+        //decToBcd() internal Vars
+        int _dec;
+        int _bcd;
 
 };
 

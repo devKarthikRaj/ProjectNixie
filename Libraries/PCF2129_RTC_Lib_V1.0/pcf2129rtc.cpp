@@ -57,19 +57,22 @@ void pcf2129rtc::updateCurrentTimeToRTC(int initHour, int initMin, int initSec)
   //Update seconds register in RTC
   Wire.beginTransmission(0x51);
   Wire.write(0x03);
-  Wire.write(_initSec); 
+  _bcdSec = pcf2129rtc::decToBcd(_initSec); //convert _initSec to BCD (RTC works in BCD)
+  Wire.write(_bcdSec); 
   Wire.endTransmission();
 
   //Update minutes register in RTC
   Wire.beginTransmission(0x51);
   Wire.write(0x04);
-  Wire.write(_initMin); 
+  _bcdMin = pcf2129rtc::decToBcd(_initMin); //convert _initMin to BCD (RTC works in BCD)
+  Wire.write(_bcdMin); 
   Wire.endTransmission();
 
   //Update hours register in RTC
   Wire.beginTransmission(0x51);
   Wire.write(0x05);
-  Wire.write(_initHour);
+  _bcdHour = pcf2129rtc::decToBcd(_initHour); //convert _initHour to BCD (RTC works in BCD)
+  Wire.write(_bcdHour);
   Wire.endTransmission();
 }
 
@@ -185,6 +188,14 @@ int pcf2129rtc::readRtcHourBCD1()
   bitWrite(_rtcHourBCD1,3,bitRead(_rtcHourInt,7));
 
   return _rtcHourBCD1;
+}
+
+int pcf2129rtc::decToBcd(int dec)
+{
+  _dec = dec;
+  _bcd = _dec + ( (6) * ( (_dec - (_dec%10) ) / (10) ) );
+  return _bcd;
+
 }
 
 
