@@ -29,12 +29,13 @@ TaskHandle_t Task1; //Runs on core 1
 #define opsLed         23 //Operation LED - Blinking if RTC interrupt is triggered and Nixie Tubes are updated
 #define devLed         25 //Dev LED - UNUSED FOR NOW
 #define pwrLed         26 //Power LED for power system (5V & 170V) status
-#define comLed         27 //Fast Blinking if not connected to app... Continuous if connected to app
+#define comLed         27 //Fast Blinking if not connected to app... Slow Blinking if connected to app
 
 //Defining cross-function vars
-int rtcHour;
-int rtcMinute;    
-int rtcSecond;
+int rxHour;
+int rxMin;
+int rxSec;
+bool updateDisplayFlag = false;
 
 //Init Nixie tube state vars (init with impossible values to avoid start up issues - remove this after testing)
 //Nixie digit to be written to
@@ -312,10 +313,32 @@ void codeForTask0(void * parameter) {
     //Until hardware verification is successful... hang at this line...
     while(VerifyBtConnection()!=true){};  
     Serial.println("Hardware verification successful");
+    //***TBD - while(not timeout and bt connection exists) - if timeout or bt disconnected... go out of while loop***
     while(1) {
-      digitalWrite(comLed,HIGH);
-      for(int i=0;i<100000;i++){}
-      delay(5);
+      digitalWrite(comLed,HIGH); //remove this line later if unnecessary 
+      if(espBt.available()) {
+        //Receive data from app via Bluetooth
+        String recDataString = espBt.readString();
+        
+        //Store the received data into a buffer for easy access!
+        char recDataBuf[10] = "";
+        recDataString.toCharArray(recDataBuf,recDataString.length());
+        
+        //process what kind of data it is (time/date/countdown)and accordingly store to time/date/countdown vars
+        if(recDataBuf[0]=='T') {
+          rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
+          rxMin = (String(recDataBuf[5])+String(recDataBuf[6])).toInt();
+          rxSec = (String(recDataBuf[8])+String(recDataBuf[9])).toInt();
+        }
+        //set updateDisplayFlag to alert core 1 to update the display
+        updateDisplayFlag = true;
+      }
+      else {
+        digitalWrite(comLed,HIGH);
+        delay(500);
+        digitalWrite(comLed,LOW);
+        delay(500);
+      }
     }
   }
 }
@@ -384,6 +407,13 @@ void codeForTask1(void * parameter) {
     //Code inside the else loop will execute if the core is not busy driving the nixies
     //Priority is given to driving the nixies!!!
     else {
+      //If the updateDisplaFlag has been set, it means that the hardware has received a command from the user 
+      //through the mobile app to update the display
+      if(updateDisplayFlag == true) {
+        pcf2129rtcInstance.updateCurrentTimeToRTC(rxHour, rxMin, rxSec); //(HOUR,MIN,SEC)
+        updateDisplayFlag = false; //Reset the updateDisplayFlag
+      }
+      
       //Drive the RGB LEDs 
       ws2812fx.service();
     }
