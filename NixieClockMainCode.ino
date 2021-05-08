@@ -88,7 +88,7 @@ void setup() {
   xTaskCreatePinnedToCore(
     codeForTask0, //Task Function
     "Task 0",     //Name of Task
-    1000,         //Stack size of task
+    10000,         //Stack size of task
     NULL,         //Parameter of the task
     1,            //Priority of the task
     &Task0,       //Task handle to keep track of the created task
@@ -98,7 +98,7 @@ void setup() {
   xTaskCreatePinnedToCore(
     codeForTask1, //Task Function
     "Task 1",     //Name of Task
-    1000,         //Stack size of task
+    10000,         //Stack size of task
     NULL,         //Parameter of the task
     1,            //Priority of the task
     &Task1,       //Task handle to keep track of the created task
@@ -319,16 +319,33 @@ void codeForTask0(void * parameter) {
       if(espBt.available()) {
         //Receive data from app via Bluetooth
         String recDataString = espBt.readString();
-        
         //Store the received data into a buffer for easy access!
         char recDataBuf[10] = "";
         recDataString.toCharArray(recDataBuf,recDataString.length());
-        
         //process what kind of data it is (time/date/countdown)and accordingly store to time/date/countdown vars
         if(recDataBuf[0]=='T') {
-          rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
-          rxMin = (String(recDataBuf[5])+String(recDataBuf[6])).toInt();
-          rxSec = (String(recDataBuf[8])+String(recDataBuf[9])).toInt();
+          if(recDataString.length() == 9) {
+            rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
+            rxMin = (String(recDataBuf[5])+String(recDataBuf[6])).toInt();
+            rxSec = (String(recDataBuf[8])+String(recDataBuf[9])).toInt();
+          }
+          else if(recDataString.length() == 7) {
+            rxHour = (String(recDataBuf[2])).toInt();
+            rxMin = (String(recDataBuf[4])).toInt();
+            rxSec = (String(recDataBuf[6])+String(recDataBuf[7])).toInt();
+          }
+          if(recDataString.length() == 8) {
+            if(recDataBuf[3] == ':') {
+              rxHour = (String(recDataBuf[2])).toInt();
+              rxMin = (String(recDataBuf[4])+String(recDataBuf[5])).toInt();
+              rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
+            }
+            else if(recDataBuf[4] == ':') {     
+              rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
+              rxMin = (String(recDataBuf[5])).toInt();
+              rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
+            }
+          }
         }
         //set updateDisplayFlag to alert core 1 to update the display
         updateDisplayFlag = true;
@@ -358,7 +375,7 @@ void codeForTask1(void * parameter) {
       writeTube3pin = getNixieExpanderPinInstance.getPinNumber(3,pcf2129rtcInstance.readRtcMinBCD1());
       writeTube4pin = getNixieExpanderPinInstance.getPinNumber(4,pcf2129rtcInstance.readRtcMinBCD0());
       writeTube5pin = getNixieExpanderPinInstance.getPinNumber(5,pcf2129rtcInstance.readRtcSecBCD1());
-      writeTube6pin = getNixieExpanderPinInstance.getPinNumber(6,pcf2129rtcInstance.readRtcSecBCD0());
+      writeTube6pin = getNixieExpanderPinInstance.getPinNumber(6,pcf2129rtcInstance.readRtcSecBCD0());      
   
       //If the tube has to be updated...
       if(writeTube1pin != currentTube1pin) {

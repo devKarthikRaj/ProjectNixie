@@ -161,7 +161,7 @@ int pcf2129rtc::readRtcMinBCD1()
 {
   int _rtcMinInt = pcf2129rtc::readRtcMin();
   bitWrite(_rtcMinBCD1,0,bitRead(_rtcMinInt,4));
-  bitWrite(_rtcSecBCD1,1,bitRead(_rtcMinInt,5));
+  bitWrite(_rtcMinBCD1,1,bitRead(_rtcMinInt,5));
   bitWrite(_rtcMinBCD1,2,bitRead(_rtcMinInt,6));
   bitWrite(_rtcMinBCD1,3,bitRead(_rtcMinInt,7));
 
