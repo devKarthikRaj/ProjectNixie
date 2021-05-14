@@ -190,16 +190,16 @@ int getNixieExpanderPin::getPinNumber(int tube, int bcdDigit)
         _pin = 15;
         break;
       case 7:
-        _pin = 16;
+        _pin = 24;
         break;
       case 8:
-        _pin = 17;
+        _pin = 25;
         break;
       case 9:
-        _pin = 18;
+        _pin = 26;
         break;
       case 0:
-        _pin = 19;
+        _pin = 27;
         break;
     }
   }
@@ -209,34 +209,34 @@ int getNixieExpanderPin::getPinNumber(int tube, int bcdDigit)
     switch(_bcdDigit)
     {
       case 1:
-        _pin = 20;
-        break;
-      case 2:
-        _pin = 21;
-        break;
-      case 3:
-        _pin = 22;
-        break;
-      case 4:
-        _pin = 23;
-        break;
-      case 5:
-        _pin = 24;
-        break;
-      case 6:
-        _pin = 25;
-        break;
-      case 7:
-        _pin = 26;
-        break;
-      case 8:
-        _pin = 27;
-        break;
-      case 9:
         _pin = 28;
         break;
-      case 0:
+      case 2:
         _pin = 29;
+        break;
+      case 3:
+        _pin = 30;
+        break;
+      case 4:
+        _pin = 31;
+        break;
+      case 5:
+        _pin = 34;
+        break;
+      case 6:
+        _pin = 35;
+        break;
+      case 7:
+        _pin = 36;
+        break;
+      case 8:
+        _pin = 37;
+        break;
+      case 9:
+        _pin = 38;
+        break;
+      case 0:
+        _pin = 39;
         break;
     }
   }

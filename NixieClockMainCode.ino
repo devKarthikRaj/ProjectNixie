@@ -376,7 +376,7 @@ void codeForTask1(void * parameter) {
       writeTube4pin = getNixieExpanderPinInstance.getPinNumber(4,pcf2129rtcInstance.readRtcMinBCD0());
       writeTube5pin = getNixieExpanderPinInstance.getPinNumber(5,pcf2129rtcInstance.readRtcSecBCD1());
       writeTube6pin = getNixieExpanderPinInstance.getPinNumber(6,pcf2129rtcInstance.readRtcSecBCD0());      
-  
+ 
       //If the tube has to be updated...
       if(writeTube1pin != currentTube1pin) {
         offNixieTube1(); //Turn off all digits on that tube
