@@ -313,8 +313,11 @@ void codeForTask0(void * parameter) {
     //Until hardware verification is successful... hang at this line...
     while(VerifyBtConnection()!=true){};  
     Serial.println("Hardware verification successful");
+    
     //***TBD - while(not timeout and bt connection exists) - if timeout or bt disconnected... go out of while loop***
-    while(1) {
+    //Timeout due to inactivity of user
+    unsigned long initTime = millis();
+    while(espBt.hasClient() && millis() - initTime < 30000) {
       digitalWrite(comLed,HIGH); //remove this line later if unnecessary 
       if(espBt.available()) {
         //Receive data from app via Bluetooth
