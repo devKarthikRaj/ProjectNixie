@@ -31,16 +31,19 @@ TaskHandle_t Task1; //Runs on core 1
 #define pwrLed         26 //Power LED for power system (5V & 170V) status
 #define comLed         27 //Fast Blinking if not connected to app... Slow Blinking if connected to app
 
-//Defining cross-function vars
-int rxHour;
+//Defining cross-core vars
+bool updateDisplayFlag = false; 
+int rxHour; 
 int rxMin;
 int rxSec;
-bool updateDisplayFlag = false;
+
 bool updateLedFlag = false;
 int ledModeNum;
 int ledBrightnessVar;
-int ledColorVar;
+uint32_t ledColorVar;
+
 unsigned long catProInitTime; //Cathode Protection Initial Time
+//----------------------------
 
 //Init Nixie tube state vars
 //--------------------------
@@ -363,28 +366,35 @@ void codeForTask0(void * parameter) {
         //process what kind of data it is (time/date/countdown)and accordingly store to time/date/countdown vars
         /*Standard format of data on Project Nixe Bluetooth Link:
          * A:BC:DE:FG
-         * -
          *   A = T (Time Mode) / D (Date Mode) / C (Countdown Mode) / L (Config LED)
          * B-G = Mode Specific Data  
         */
+        //If Time Mode Initiated by App...
         if(recDataBuf[0]=='T') {
+          Serial.println("Time Mode Initiated");
+          
+          //The below decoding is necessary as the time sent by the android system varies in format for diff times
           if(recDataString.length() == 9) {
+            //Format: T:HH:MM:SS
             rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
             rxMin = (String(recDataBuf[5])+String(recDataBuf[6])).toInt();
             rxSec = (String(recDataBuf[8])+String(recDataBuf[9])).toInt();
           }
           else if(recDataString.length() == 7) {
+            //Format: T:H:M:SS
             rxHour = (String(recDataBuf[2])).toInt();
             rxMin = (String(recDataBuf[4])).toInt();
             rxSec = (String(recDataBuf[6])+String(recDataBuf[7])).toInt();
           }
           if(recDataString.length() == 8) {
             if(recDataBuf[3] == ':') {
+              //Format: T:H:MM:SS
               rxHour = (String(recDataBuf[2])).toInt();
               rxMin = (String(recDataBuf[4])+String(recDataBuf[5])).toInt();
               rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
             }
-            else if(recDataBuf[4] == ':') {     
+            else if(recDataBuf[4] == ':') {
+              //Format: T:HH:M:SS     
               rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
               rxMin = (String(recDataBuf[5])).toInt();
               rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
@@ -393,14 +403,35 @@ void codeForTask0(void * parameter) {
         //set updateDisplayFlag to alert core 1 to update the display
         updateDisplayFlag = true;
         }
+
+        //If Date Mode Initiated by App...
         else if (recDataBuf[0]=='D') {
-          Serial.println("Shifting Display to Date Mode");
+          Serial.println("Date Mode Initiated");
         }
+        
+        //If Countdown Mode Initiated by App...
         else if(recDataBuf[0]=='C') {
-          Serial.println("Shifting Display to Countdown Mode");
+          Serial.println("Countdown Mode Initiated");
         }
+        
+        //If RGB LED Config Changed by App...
         else if(recDataBuf[0]=='L') {
-          Serial.println("Config RGB LED");
+          Serial.println("RGB LED Config");
+
+          //Format: L:A:BCD:EFGHIJKLM
+          /*   A = LED Mode 
+           * B-D = Brightness
+           * E-M = Color (6 digit HEX expressed in uint32_t)
+           */
+
+          //Updated Format (TBD): L:A:BCD:EFG:HIJ:KLM
+          /*   A = LED Mode
+           * B-D = Brightness
+           * E-G = R in RGB for Color
+           * H-J = G in RGB for Color
+           * K-M = B in RGB for Color
+           */
+         
           //Read LED Mode 
           if(recDataBuf[2] == '1') {
             //Mode 1 - Rainbow Cycle
@@ -448,9 +479,10 @@ void codeForTask0(void * parameter) {
                             + recDataBuf[12]  
                             + recDataBuf[13]  
                             + recDataBuf[14]  
-                            + recDataBuf[15]).toInt(); 
-          //---------------
-          
+                            + recDataBuf[15]).toInt(); //BUG TO BE SOLVED - String has to be converted to uint32, not int!!! 
+          //------------------------------------------
+
+          //set updateLedFlag to alert core 1 to update the RGB LEDs
           updateLedFlag = true;
         }
       }
@@ -551,9 +583,10 @@ void codeForTask1(void * parameter) {
       }
       
       //Drive the RGB LEDs
-      //Serial.println(updateLedFlag);
+      //If the updateLedFlag has been set, it means that the hardware has received a command from the user
+      //through the mobile app to update the RGB LEDs
       if(updateLedFlag == true) {
-        Serial.println(ledModeNum);
+        //Check and Set LED Mode
         switch(ledModeNum) {
           case 1:
                   Serial.println("RGB LED set to Rainbow Mode");
@@ -588,12 +621,16 @@ void codeForTask1(void * parameter) {
                   ws2812fx.setMode(FX_MODE_STATIC);
                   break;      
         }
+        
+        //Check and Set LED Brightness 
         ws2812fx.setBrightness(ledBrightnessVar);
+        
+        //Check and Set LED Color
         ws2812fx.setColor(ledColorVar);
         
-        updateLedFlag = false;
+        updateLedFlag = false; //Reset the updateLEDFlag
       }
-      ws2812fx.service();  
+      ws2812fx.service();
     }
   }
 }
