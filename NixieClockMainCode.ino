@@ -36,23 +36,26 @@ int rxHour;
 int rxMin;
 int rxSec;
 bool updateDisplayFlag = false;
+unsigned long catProInitTime; //Cathode Protection Initial Time
 
-//Init Nixie tube state vars (init with impossible values to avoid start up issues - remove this after testing)
+//Init Nixie tube state vars
+//--------------------------
 //Nixie digit to be written to
-int writeTube1pin = 1000;
-int writeTube2pin = 1000;
-int writeTube3pin = 1000;
-int writeTube4pin = 1000;
-int writeTube5pin = 1000;
-int writeTube6pin = 1000;
+int writeTube1pin;
+int writeTube2pin;
+int writeTube3pin; 
+int writeTube4pin;
+int writeTube5pin;
+int writeTube6pin; 
 
 //Nixie digit that is currently on
-int currentTube1pin = 2000;
-int currentTube2pin = 2000;
-int currentTube3pin = 2000;
-int currentTube4pin = 2000;
-int currentTube5pin = 2000;
-int currentTube6pin = 2000;
+int currentTube1pin;
+int currentTube2pin;
+int currentTube3pin;
+int currentTube4pin;
+int currentTube5pin;
+int currentTube6pin;
+//--------------------------
 
 //Creating an instance of the PCF2129 RTC Lib
 pcf2129rtc pcf2129rtcInstance(twimIntSDA, twimIntSCL); //(SDA,SCL)
@@ -88,7 +91,7 @@ void setup() {
   xTaskCreatePinnedToCore(
     codeForTask0, //Task Function
     "Task 0",     //Name of Task
-    10000,         //Stack size of task
+    10000,        //Stack size of task
     NULL,         //Parameter of the task
     1,            //Priority of the task
     &Task0,       //Task handle to keep track of the created task
@@ -98,7 +101,7 @@ void setup() {
   xTaskCreatePinnedToCore(
     codeForTask1, //Task Function
     "Task 1",     //Name of Task
-    10000,         //Stack size of task
+    10000,        //Stack size of task
     NULL,         //Parameter of the task
     1,            //Priority of the task
     &Task1,       //Task handle to keep track of the created task
@@ -154,6 +157,8 @@ void setup() {
   expanderChip1.portMode(3,OUTPUT);
   expanderChip1.portMode(4,OUTPUT);
 
+  catProInitTime = millis(); //Init catProInitTime
+
   //RGB LED Config
   ws2812fx.init();
   ws2812fx.setBrightness(50);
@@ -163,7 +168,7 @@ void setup() {
 }
 
 void loop() {
-  //Loop isn't used as all the code has been separated into tasks and run explicitly on core 1 and 2
+  //Loop isn't used as all the code has been separated into tasks and run explicitly on core 0 and 1
 }
 
 //Function Definitions
@@ -302,6 +307,31 @@ void offNixieTube6() {
   }
 }
 
+void cathodeProtection() {
+  //A cathode protection a day keeps the cathode poisoning away!!!
+  Serial.println("Initiating Routine Cathode Protection");
+  //The inner most for loop takes approx 330ms to execute...
+  //So for cathode protection to last approx 5s... The inner most for loop must be executed 15 times
+  for(int i=0;i<15;i++) {
+    for(int i=0; i<10; i++) {
+    expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(1,i),HIGH);
+    expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,i),HIGH);
+    expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,i),HIGH);
+    expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,i),HIGH);
+    expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,i),HIGH);
+    expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,i),HIGH);
+    delay(10);
+    expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(1,i),LOW);
+    expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,i),LOW);
+    expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,i),LOW);
+    expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,i),LOW);
+    expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,i),LOW);
+    expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,i),LOW);
+    }
+  }
+  Serial.println("Cathode Protection Successfully Completed");
+}
+
 //Main Code for Core 0 and 1 
 
 /* Core 0 
@@ -355,9 +385,9 @@ void codeForTask0(void * parameter) {
       }
       else {
         digitalWrite(comLed,HIGH);
-        delay(500);
+        delay(200);
         digitalWrite(comLed,LOW);
-        delay(500);
+        delay(200);
       }
     }
   }
@@ -370,6 +400,21 @@ void codeForTask0(void * parameter) {
  */
 void codeForTask1(void * parameter) {
   while(1) {
+    //If it has been 10mins since power on or the previous run of the cathode protection routine...
+    if(millis() - catProInitTime > 600000) {
+      cathodeProtection(); //Lasts 5s 
+      catProInitTime = millis(); //Reset catProInitTime to current time
+
+      //Revert all 6 tubes to what they were displaying right before cathode protection started...
+      expanderChip0.digitalWrite(currentTube1pin,HIGH); //Turn on the updated digit
+      expanderChip0.digitalWrite(currentTube2pin,HIGH); //Turn on the updated digit
+      expanderChip0.digitalWrite(currentTube3pin,HIGH); //Turn on the updated digit
+      expanderChip1.digitalWrite(currentTube4pin,HIGH); //Turn on the updated digit
+      expanderChip1.digitalWrite(currentTube5pin,HIGH); //Turn on the updated digit
+      expanderChip1.digitalWrite(currentTube6pin,HIGH); //Turn on the updated digit
+    }
+
+    //If RTC seconds interrupt triggered...
     if(secIntFlag == true) {
       //Get the pin numbers of the nixie digits to turn on for each tube
       //getNixieExpanderPinInstance.getPinNumber(TUBE_NUM,BCD_DIGIT)
