@@ -36,6 +36,10 @@ int rxHour;
 int rxMin;
 int rxSec;
 bool updateDisplayFlag = false;
+bool updateLedFlag = false;
+int ledModeNum;
+int ledBrightnessVar;
+int ledColorVar;
 unsigned long catProInitTime; //Cathode Protection Initial Time
 
 //Init Nixie tube state vars
@@ -159,11 +163,11 @@ void setup() {
 
   catProInitTime = millis(); //Init catProInitTime
 
-  //RGB LED Config
+  //RGB LED Config (Default Settings)
   ws2812fx.init();
   ws2812fx.setBrightness(50);
   ws2812fx.setSpeed(5);
-  ws2812fx.setMode(FX_MODE_RAINBOW_CYCLE);
+  ws2812fx.setMode(FX_MODE_RAINBOW_CYCLE); 
   ws2812fx.start();
 }
 
@@ -343,19 +347,26 @@ void codeForTask0(void * parameter) {
     //Until hardware verification is successful... hang at this line...
     while(VerifyBtConnection()!=true){};  
     Serial.println("Hardware verification successful");
-    
     //***TBD - while(not timeout and bt connection exists) - if timeout or bt disconnected... go out of while loop***
     //Timeout due to inactivity of user
     unsigned long initTime = millis();
-    while(espBt.hasClient() && millis() - initTime < 30000) {
+    while(espBt.hasClient() && millis() - initTime < 180000) {
       digitalWrite(comLed,HIGH); //remove this line later if unnecessary 
       if(espBt.available()) {
         //Receive data from app via Bluetooth
         String recDataString = espBt.readString();
+        Serial.println("Data Received From App: " + recDataString);
+        Serial.println("Processing Data Received...");
         //Store the received data into a buffer for easy access!
-        char recDataBuf[10] = "";
+        char recDataBuf[16] = "";
         recDataString.toCharArray(recDataBuf,recDataString.length());
         //process what kind of data it is (time/date/countdown)and accordingly store to time/date/countdown vars
+        /*Standard format of data on Project Nixe Bluetooth Link:
+         * A:BC:DE:FG
+         * -
+         *   A = T (Time Mode) / D (Date Mode) / C (Countdown Mode) / L (Config LED)
+         * B-G = Mode Specific Data  
+        */
         if(recDataBuf[0]=='T') {
           if(recDataString.length() == 9) {
             rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
@@ -379,9 +390,69 @@ void codeForTask0(void * parameter) {
               rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
             }
           }
-        }
         //set updateDisplayFlag to alert core 1 to update the display
         updateDisplayFlag = true;
+        }
+        else if (recDataBuf[0]=='D') {
+          Serial.println("Shifting Display to Date Mode");
+        }
+        else if(recDataBuf[0]=='C') {
+          Serial.println("Shifting Display to Countdown Mode");
+        }
+        else if(recDataBuf[0]=='L') {
+          Serial.println("Config RGB LED");
+          //Read LED Mode 
+          if(recDataBuf[2] == '1') {
+            //Mode 1 - Rainbow Cycle
+            ledModeNum = 1;
+          }
+          else if(recDataBuf[2] == '2') {
+            //Mode 2 - Breath
+            ledModeNum = 2;
+          }
+          else if(recDataBuf[2] == '3') {
+            //Mode 3 - Fade
+            ledModeNum = 3;
+          }
+          else if(recDataBuf[2] == '4') {
+            //Mode 4 - Theater Chase
+            ledModeNum = 4;
+          }
+          else if(recDataBuf[2] == '5') {
+            //Mode 5 - Theater Chase Rainbow
+            ledModeNum = 5;
+          }
+          else if(recDataBuf[2] == '6') {
+            //Mode 6 - Running Lights
+            ledModeNum = 6;
+          }
+          else if(recDataBuf[2] == '7') {
+            //Mode 7 - Merry Christmas
+            ledModeNum = 7;
+          }
+          else if(recDataBuf[2] == '8') {
+            //Mode 8 - Static
+            ledModeNum = 8;
+          }
+          //-------------
+          
+          //Check LED brightness
+          ledBrightnessVar = String(recDataBuf[4] + recDataBuf[5] + recDataBuf[6]).toInt(); 
+          //--------------------
+
+          //Check LED Color
+          ledColorVar = String(recDataBuf[8]
+                            +  recDataBuf[9]  
+                            + recDataBuf[10]  
+                            + recDataBuf[11] 
+                            + recDataBuf[12]  
+                            + recDataBuf[13]  
+                            + recDataBuf[14]  
+                            + recDataBuf[15]).toInt(); 
+          //---------------
+          
+          updateLedFlag = true;
+        }
       }
       else {
         digitalWrite(comLed,HIGH);
@@ -479,8 +550,50 @@ void codeForTask1(void * parameter) {
         updateDisplayFlag = false; //Reset the updateDisplayFlag
       }
       
-      //Drive the RGB LEDs 
-      ws2812fx.service();
+      //Drive the RGB LEDs
+      //Serial.println(updateLedFlag);
+      if(updateLedFlag == true) {
+        Serial.println(ledModeNum);
+        switch(ledModeNum) {
+          case 1:
+                  Serial.println("RGB LED set to Rainbow Mode");
+                  ws2812fx.setMode(FX_MODE_RAINBOW_CYCLE);  
+                  break;
+          case 2:
+                  Serial.println("RGB LED set to Breath Mode");
+                  ws2812fx.setMode(FX_MODE_BREATH);
+                  break;
+          case 3:
+                  Serial.println("RGB LED set to Fade Mode");
+                  ws2812fx.setMode(FX_MODE_FADE);  
+                  break;
+          case 4:
+                  Serial.println("RGB LED set to Theater Chase Mode");
+                  ws2812fx.setMode(FX_MODE_THEATER_CHASE);
+                  break;
+          case 5:
+                  Serial.println("RGB LED set to Theater Chase Rainbow Mode");
+                  ws2812fx.setMode(FX_MODE_THEATER_CHASE_RAINBOW);  
+                  break;
+          case 6:
+                  Serial.println("RGB LED set to Running Lights Mode");
+                  ws2812fx.setMode(FX_MODE_RUNNING_LIGHTS);
+                  break;
+          case 7:
+                  Serial.println("RGB LED set to Merry Christmas Mode");
+                  ws2812fx.setMode(FX_MODE_MERRY_CHRISTMAS);  
+                  break;
+          case 8:
+                  Serial.println("RGB LED set to Static Mode");
+                  ws2812fx.setMode(FX_MODE_STATIC);
+                  break;      
+        }
+        ws2812fx.setBrightness(ledBrightnessVar);
+        ws2812fx.setColor(ledColorVar);
+        
+        updateLedFlag = false;
+      }
+      ws2812fx.service();  
     }
   }
 }
