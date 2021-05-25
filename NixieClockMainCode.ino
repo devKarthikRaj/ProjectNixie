@@ -33,6 +33,8 @@ TaskHandle_t Task1; //Runs on core 1
 
 //Defining cross-core var
 //-----------------------
+bool setHardwareMode= true; //true = Time Mode | false = Countdown Mode | Default = Time Mode
+
 bool updateDisplayFlag = false; 
 int rxHour; 
 int rxMin;
@@ -419,13 +421,65 @@ void codeForTask0(void * parameter) {
               rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
             }
           }
-        //set updateDisplayFlag to alert core 1 to update the display
+
+        //Turn of all nixie tubes
+        //This to prevent displaying digits from the previous mode even after switching modes
+        offNixieTube1();
+        offNixieTube2();
+        offNixieTube3();
+        offNixieTube4();
+        offNixieTube5();
+        offNixieTube6();
+        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(1,0),HIGH);
+        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,0),HIGH);
+        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,0),HIGH);
+        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,0),HIGH);
+        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,0),HIGH);
+        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,0),HIGH);
+        currentTube1pin = 0;
+        currentTube2pin = 0;
+        currentTube3pin = 0;
+        currentTube4pin = 0;
+        currentTube5pin = 0;
+        currentTube6pin = 0;
+        
+        //Set updateDisplayFlag to alert core 1 to update the display
         updateDisplayFlag = true;
+
+        //Set setHardwareMode to true indicating to core 1 that user has activated time mode
+        setHardwareMode = true;
         }
         
         //If Countdown Mode Initiated by App...
         else if(recDataBuf[0]=='C') {
           Serial.println("Countdown Mode Initiated");
+
+          //Turn off all nixie tubes > Write 0 to all tubes > Update current tube state vars
+          //This to prevent displaying digits from the previous mode even after switching modes
+          offNixieTube1();
+          offNixieTube2();
+          offNixieTube3();
+          offNixieTube4();
+          offNixieTube5();
+          offNixieTube6();
+          expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(1,0),HIGH);
+          expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,0),HIGH);
+          expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,0),HIGH);
+          expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,0),HIGH);
+          expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,0),HIGH);
+          expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,0),HIGH);
+          currentTube1pin = 0;
+          currentTube2pin = 0;
+          currentTube3pin = 0;
+          currentTube4pin = 0;
+          currentTube5pin = 0;
+          currentTube6pin = 0;
+          
+          //Set updateDisplayFlag to alert core 1 to update the display
+          updateDisplayFlag = true;
+
+          //Set setHardwareMode to false indicating to core 1 that user has activated countdown mode
+          setHardwareMode = false;
         }
         
         //If RGB LED Config Changed by App...
@@ -521,49 +575,68 @@ void codeForTask1(void * parameter) {
 
     //If RTC seconds interrupt triggered...
     if(secIntFlag == true) {
-      //Get the pin numbers of the nixie digits to turn on for each tube
-      //getNixieExpanderPinInstance.getPinNumber(TUBE_NUM,BCD_DIGIT)
-      writeTube1pin = getNixieExpanderPinInstance.getPinNumber(1,pcf2129rtcInstance.readRtcHourBCD1());
-      writeTube2pin = getNixieExpanderPinInstance.getPinNumber(2,pcf2129rtcInstance.readRtcHourBCD0());
-      writeTube3pin = getNixieExpanderPinInstance.getPinNumber(3,pcf2129rtcInstance.readRtcMinBCD1());
-      writeTube4pin = getNixieExpanderPinInstance.getPinNumber(4,pcf2129rtcInstance.readRtcMinBCD0());
-      writeTube5pin = getNixieExpanderPinInstance.getPinNumber(5,pcf2129rtcInstance.readRtcSecBCD1());
-      writeTube6pin = getNixieExpanderPinInstance.getPinNumber(6,pcf2129rtcInstance.readRtcSecBCD0());      
- 
-      //If the tube has to be updated...
-      if(writeTube1pin != currentTube1pin) {
-        offNixieTube1(); //Turn off all digits on that tube
-        expanderChip0.digitalWrite(writeTube1pin,HIGH); //Turn on the updated digit
-        //Turning off the tube and then updating the tube is done to prevent double digit display on the tube
+      //If time mode is activated by user...
+      if(setHardwareMode == true) {
+        //Get the pin numbers of the nixie digits to turn on for each tube
+        //getNixieExpanderPinInstance.getPinNumber(TUBE_NUM,BCD_DIGIT)
+        writeTube1pin = getNixieExpanderPinInstance.getPinNumber(1,pcf2129rtcInstance.readRtcHourBCD1());
+        writeTube2pin = getNixieExpanderPinInstance.getPinNumber(2,pcf2129rtcInstance.readRtcHourBCD0());
+        writeTube3pin = getNixieExpanderPinInstance.getPinNumber(3,pcf2129rtcInstance.readRtcMinBCD1());
+        writeTube4pin = getNixieExpanderPinInstance.getPinNumber(4,pcf2129rtcInstance.readRtcMinBCD0());
+        writeTube5pin = getNixieExpanderPinInstance.getPinNumber(5,pcf2129rtcInstance.readRtcSecBCD1());
+        writeTube6pin = getNixieExpanderPinInstance.getPinNumber(6,pcf2129rtcInstance.readRtcSecBCD0());      
+   
+        //If the tube has to be updated...
+        if(writeTube1pin != currentTube1pin) {
+          offNixieTube1(); //Turn off all digits on that tube
+          expanderChip0.digitalWrite(writeTube1pin,HIGH); //Turn on the updated digit
+          //Turning off the tube and then updating the tube is done to prevent double digit display on the tube
+        }
+        if(writeTube2pin != currentTube2pin) {
+          offNixieTube2();
+          expanderChip0.digitalWrite(writeTube2pin,HIGH);
+        }
+        if(writeTube3pin != currentTube3pin) {
+          offNixieTube3();
+          expanderChip0.digitalWrite(writeTube3pin,HIGH); 
+        }
+        if(writeTube4pin != currentTube4pin) {
+          offNixieTube4();
+          expanderChip1.digitalWrite(writeTube4pin,HIGH);  
+        }
+        if(writeTube5pin != currentTube5pin) {
+          offNixieTube5();
+          expanderChip1.digitalWrite(writeTube5pin,HIGH);
+        }
+        if(writeTube6pin != currentTube6pin) {
+          offNixieTube6();
+          expanderChip1.digitalWrite(writeTube6pin,HIGH);
+        }
+    
+        //Update the tube state (digit currently displayed in each tube)
+        currentTube1pin = writeTube1pin;
+        currentTube2pin = writeTube2pin;
+        currentTube3pin = writeTube3pin;
+        currentTube4pin = writeTube4pin;
+        currentTube5pin = writeTube5pin;
+        currentTube6pin = writeTube6pin;
       }
-      if(writeTube2pin != currentTube2pin) {
+      
+      //If countdown mode is activated by user...
+      else {
+        offNixieTube1();
         offNixieTube2();
-        expanderChip0.digitalWrite(writeTube2pin,HIGH);
-      }
-      if(writeTube3pin != currentTube3pin) {
         offNixieTube3();
-        expanderChip0.digitalWrite(writeTube3pin,HIGH); 
-      }
-      if(writeTube4pin != currentTube4pin) {
         offNixieTube4();
-        expanderChip1.digitalWrite(writeTube4pin,HIGH);  
-      }
-      if(writeTube5pin != currentTube5pin) {
         offNixieTube5();
-        expanderChip1.digitalWrite(writeTube5pin,HIGH);
-      }
-      if(writeTube6pin != currentTube6pin) {
         offNixieTube6();
-        expanderChip1.digitalWrite(writeTube6pin,HIGH);
+        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(1,3),HIGH); //Turn on the updated digit
+        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,3),HIGH); //Turn on the updated digit
+        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,3),HIGH); //Turn on the updated digit
+        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,3),HIGH); //Turn on the updated digit
+        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,3),HIGH); //Turn on the updated digit
+        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,3),HIGH); //Turn on the updated digit
       }
-  
-      //Update the tube state (digit currently displayed in each tube)
-      currentTube1pin = writeTube1pin;
-      currentTube2pin = writeTube2pin;
-      currentTube3pin = writeTube3pin;
-      currentTube4pin = writeTube4pin;
-      currentTube5pin = writeTube5pin;
-      currentTube6pin = writeTube6pin;
   
       //Reset interrupt secIntFlag
       secIntFlag = false;
@@ -575,7 +648,7 @@ void codeForTask1(void * parameter) {
       digitalWrite(opsLed,LOW);
     }
     //Code inside the else loop will execute if the core is not busy driving the nixies
-    //Priority is given to driving the nixies!!!
+    //Priority is given to driving the nixies and cathode protection!!!
     else {
       //If the updateDisplaFlag has been set, it means that the hardware has received a command from the user 
       //through the mobile app to update the display
