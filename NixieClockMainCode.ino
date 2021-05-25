@@ -31,7 +31,8 @@ TaskHandle_t Task1; //Runs on core 1
 #define pwrLed         26 //Power LED for power system (5V & 170V) status
 #define comLed         27 //Fast Blinking if not connected to app... Slow Blinking if connected to app
 
-//Defining cross-core vars
+//Defining cross-core var
+//-----------------------
 bool updateDisplayFlag = false; 
 int rxHour; 
 int rxMin;
@@ -40,21 +41,22 @@ int rxSec;
 bool updateLedFlag = false;
 int ledModeNum;
 int ledBrightnessVar;
-uint32_t ledColorVar;
+int redVar;
+int greenVar;
+int blueVar;
 
 unsigned long catProInitTime; //Cathode Protection Initial Time
-//----------------------------
 
-//Init Nixie tube state vars
-//--------------------------
+//Init Nixie tube state vars:
+//---------------------------
 //Nixie digit to be written to
 int writeTube1pin;
 int writeTube2pin;
 int writeTube3pin; 
 int writeTube4pin;
 int writeTube5pin;
-int writeTube6pin; 
-
+int writeTube6pin;
+ 
 //Nixie digit that is currently on
 int currentTube1pin;
 int currentTube2pin;
@@ -62,7 +64,6 @@ int currentTube3pin;
 int currentTube4pin;
 int currentTube5pin;
 int currentTube6pin;
-//--------------------------
 
 //Creating an instance of the PCF2129 RTC Lib
 pcf2129rtc pcf2129rtcInstance(twimIntSDA, twimIntSCL); //(SDA,SCL)
@@ -77,6 +78,10 @@ void IRAM_ATTR rtcIntISR() {
 //Declare BT object
 BluetoothSerial espBt;
 
+//Nixie Clock ID (This ID is unique and is used in the clock's BT network display name)
+//The Nixie Clock ID comprises the first and last byte of the ESP32's Bluetooth MAC address
+String ID = "7C0A";
+
 //Unique code that'll be known only to user or will be labelled on the hardware itself (security)
 String uniqueCode = "UNIQUE_CODE";
 
@@ -84,7 +89,7 @@ String uniqueCode = "UNIQUE_CODE";
 PCA9698 expanderChip0(0x20,twimIntSDA,twimIntSCL,1000000); //(I2C_ADDR,SDA,SCL,SPEED)
 PCA9698 expanderChip1(0x21,twimIntSDA,twimIntSCL,1000000); 
 
-//Create an instance of the port expander to nixie tube digit pin mapping lib 
+//Create an instance of the "port expander to nixie tube digit pin mapping lib"
 //***This lib is specific to the Nixie hardware used in this project***
 getNixieExpanderPin getNixieExpanderPinInstance; 
 
@@ -92,7 +97,7 @@ getNixieExpanderPin getNixieExpanderPinInstance;
 WS2812FX ws2812fx = WS2812FX(6, ledBus, NEO_GRB + NEO_KHZ800); //(LED_COUNT,LED_PIN,NEO_GRB + NEO_KHZ800)
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(115200); //Set baud rate
 
   //Core 0 Config
   xTaskCreatePinnedToCore(
@@ -115,7 +120,7 @@ void setup() {
     1);           //Target Core
 
   //IO Definitions
-  pinMode(rtcInt,INPUT_PULLUP); //Interrupt pin has to be set as input pullup
+  pinMode(rtcInt,INPUT_PULLUP); //***Interrupt pin has to be set as input pullup***
   pinMode(en170V,OUTPUT);
   pinMode(en5V,OUTPUT);
   pinMode(supervisor5V,INPUT);
@@ -126,11 +131,13 @@ void setup() {
   pinMode(pwrLed,OUTPUT);
   pinMode(comLed,OUTPUT);
 
-  //Turn on the 5V and 170V supplies (3.3V is auto turned on cuz ESP32 run off it)
+  //Turn on the 5V and 170V supplies (3.3V is auto turned on cuz ESP32 runs off it)
   enablePowerSupplies(); 
 
   //Name of BT signal
-  espBt.begin("ESP32_BT_Control"); //This will be the name shown to other BT devices in the BT network
+  //This will be the name shown to other BT devices in the BT network
+  //ID is defined above and is unique to each clock (This is to prevent multiple clocks from having the same name on the BT network)
+  espBt.begin("Nixie_Clock_" + ID); 
 
   //RTC Initial Config
   pcf2129rtcInstance.rtcInitialConfig(); 
@@ -146,10 +153,10 @@ void setup() {
   //Interrupt Definitions
   //attachInterrupt(digitalPinToInterrupt(PIN_NUM), ISR, mode)
   //Mode: LOW/CHANGE/RISING/FALLING/*HIGH(Only for Due,Zero,MKR1000 boards)* 
-  attachInterrupt(digitalPinToInterrupt(supervisor5V), pwrSysFailISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(rtcInt),rtcIntISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(supervisor5V), pwrSubSysMonitor, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(rtcInt), rtcIntISR, FALLING);
 
-  //Port expander chips config and port io mode setting
+  //Port expander chips config and port IO mode setting
   expanderChip0.configuration();
   expanderChip0.portMode(0,OUTPUT); //(PORT_NUM,INPUT/OUTPUT)
   expanderChip0.portMode(1,OUTPUT);
@@ -185,9 +192,45 @@ void enablePowerSupplies() {
   digitalWrite(en170V, LOW); 
 }
 
+//THIS FUNCTION IS UNTESTED
+//pwrSubSysMonitor is triggered when the 5V rail is activated or 5V rail blackout
+IRAM_ATTR void pwrSubSysMonitor() {
+  //If 5V Blackout...
+  if(digitalRead(supervisor5V) == LOW) {
+    //Initiate 5V Blackout Procedures
+    disableSubsystems(); //This is done to protect the hardware
+    digitalWrite(pwrLed,HIGH); //Turn on the pwrLed to indicate to user that there is a power fault
+  }
+  //If 5V rail is active...
+  else {
+    digitalWrite(pwrLed,LOW); //Turn off the pwrLed to indicate to the user that the pwr system is alive and kicking!!!
+  }
+}
+
+//THIS FUNCTION IS INCOMPLETE AND UNTESTED
+//This function is called by the pwrSubSysMonitor() when there is a blackout on the 5V rail
+//This function will switch off the 5V and 170V power supplies and turn off the 6 Nixie Tubes and RGB LEDs... 
+//This puts the hardware into safe mode, thereby protecting the hardware against further damage!
+void disableSubsystems() {
+  //Disable power sub systems
+  digitalWrite(en170V, HIGH);
+  digitalWrite(en5V, LOW);
+
+  //Off All Nixie Tubes
+  offNixieTube1();
+  offNixieTube2();
+  offNixieTube3();
+  offNixieTube4();
+  offNixieTube5();
+  offNixieTube6();
+  
+  //Disable RGB LEDs
+  ws2812fx.stop();
+}
+
 //Run this function until it returns true
-//Return true = security verification successful
-//Return false = security verification unsuccessful/timeout
+//Returns true = security verification successful
+//Returns false = security verification unsuccessful
 bool VerifyBtConnection() {
   int state = 0; //Set the starting state of the state machine
   for(int i=0; i<3; i++) {
@@ -251,36 +294,6 @@ bool VerifyBtConnection() {
       break;
     }
   }
-}
-
-//THIS FUNCTION IS UNTESTED
-//ISR triggered when there is a blackout on the 5V rail
-IRAM_ATTR void pwrSysFailISR() {
-  //Check sub system statuses and set LEDs in void setup
-  //Use interrupt to toggle LEDs if subsystems fail!!!
-  
-  //Power Sub-System LED - LED on if 5V supply is present
-  if(digitalRead(supervisor5V) == HIGH) {
-    digitalWrite(pwrLed, HIGH);
-    //Serial.println("5V RAIL ACTIVE");
-  }
-  else {
-    digitalWrite(pwrLed, LOW);
-    //Serial.println("5V RAIL INACTIVE!!!");
-  }
-}
-
-//THIS FUNCTION IS INCOMPLETE AND UNTESTED
-//This function is called by the pwrSysFailISR() which is triggered when there is a blackout on the 5V rail
-//This function will switch off the 5V and 170V power supplies and turn off the RGB LEDs... 
-//This puts the hardware into safe mode
-void disableSubsystems() {
-  //Disable power sub systems
-  digitalWrite(en170V, HIGH);
-  digitalWrite(en5V, LOW);
-
-  //Disable RGB LEDs
-  ws2812fx.stop();
 }
 
 void offNixieTube1() {
@@ -350,23 +363,29 @@ void codeForTask0(void * parameter) {
     //Until hardware verification is successful... hang at this line...
     while(VerifyBtConnection()!=true){};  
     Serial.println("Hardware verification successful");
-    //***TBD - while(not timeout and bt connection exists) - if timeout or bt disconnected... go out of while loop***
-    //Timeout due to inactivity of user
+    
+    //This is the time when user enters the mobile app's home page to config the clock
     unsigned long initTime = millis();
+
+    //While there is an active BT connection to the app and it has not been more than 3mins since the user started to config the clock...
+    //***User has 3mins to config clock, after which the user will have to verify Bt connection again (this is for security purposes)***
     while(espBt.hasClient() && millis() - initTime < 180000) {
-      digitalWrite(comLed,HIGH); //remove this line later if unnecessary 
+      //digitalWrite(comLed,HIGH); 
+      //If app data has been received from app side...
       if(espBt.available()) {
-        //Receive data from app via Bluetooth
+        //Receive data from app via Bt
         String recDataString = espBt.readString();
         Serial.println("Data Received From App: " + recDataString);
         Serial.println("Processing Data Received...");
+        
         //Store the received data into a buffer for easy access!
-        char recDataBuf[16] = "";
+        char recDataBuf[20] = ""; 
         recDataString.toCharArray(recDataBuf,recDataString.length());
-        //process what kind of data it is (time/date/countdown)and accordingly store to time/date/countdown vars
+        
+        //Process what kind of data it is (time/countdown/LED)and accordingly store to time/countdown/LED vars
         /*Standard format of data on Project Nixe Bluetooth Link:
          * A:BC:DE:FG
-         *   A = T (Time Mode) / D (Date Mode) / C (Countdown Mode) / L (Config LED)
+         *   A = T (Time Mode) / C (Countdown Mode) / L (Config LED)
          * B-G = Mode Specific Data  
         */
         //If Time Mode Initiated by App...
@@ -403,11 +422,6 @@ void codeForTask0(void * parameter) {
         //set updateDisplayFlag to alert core 1 to update the display
         updateDisplayFlag = true;
         }
-
-        //If Date Mode Initiated by App...
-        else if (recDataBuf[0]=='D') {
-          Serial.println("Date Mode Initiated");
-        }
         
         //If Countdown Mode Initiated by App...
         else if(recDataBuf[0]=='C') {
@@ -418,18 +432,12 @@ void codeForTask0(void * parameter) {
         else if(recDataBuf[0]=='L') {
           Serial.println("RGB LED Config");
 
-          //Format: L:A:BCD:EFGHIJKLM
-          /*   A = LED Mode 
-           * B-D = Brightness
-           * E-M = Color (6 digit HEX expressed in uint32_t)
-           */
-
-          //Updated Format (TBD): L:A:BCD:EFG:HIJ:KLM
-          /*   A = LED Mode
-           * B-D = Brightness
-           * E-G = R in RGB for Color
-           * H-J = G in RGB for Color
-           * K-M = B in RGB for Color
+          //Format: L:A:BCD:EFG:HIJ:KLM
+          /*   A = LED Mode   = 1-8
+           * B-D = Brightness = 0-100
+           * E-G = R in RGB   = 0-255 
+           * H-J = G in RGB   = 0-255
+           * K-M = B in RGB   = 0-255
            */
          
           //Read LED Mode 
@@ -465,28 +473,22 @@ void codeForTask0(void * parameter) {
             //Mode 8 - Static
             ledModeNum = 8;
           }
-          //-------------
           
-          //Check LED brightness
-          ledBrightnessVar = String(recDataBuf[4] + recDataBuf[5] + recDataBuf[6]).toInt(); 
-          //--------------------
-
-          //Check LED Color
-          ledColorVar = String(recDataBuf[8]
-                            +  recDataBuf[9]  
-                            + recDataBuf[10]  
-                            + recDataBuf[11] 
-                            + recDataBuf[12]  
-                            + recDataBuf[13]  
-                            + recDataBuf[14]  
-                            + recDataBuf[15]).toInt(); //BUG TO BE SOLVED - String has to be converted to uint32, not int!!! 
-          //------------------------------------------
+          //Read LED brightness
+          ledBrightnessVar = (String(recDataBuf[4]) + String(recDataBuf[5]) + String(recDataBuf[6])).toInt();
+          
+          //Read LED Color
+          redVar = (String(recDataBuf[8]) + String(recDataBuf[9]) + String(recDataBuf[10])).toInt(); 
+          greenVar = (String(recDataBuf[12]) + String(recDataBuf[13]) + String(recDataBuf[14])).toInt(); 
+          blueVar = (String(recDataBuf[16]) + String(recDataBuf[17]) + String(recDataBuf[18])).toInt();
 
           //set updateLedFlag to alert core 1 to update the RGB LEDs
           updateLedFlag = true;
         }
       }
+      //If no data is received from app and core 0 is not busy processing that data...
       else {
+        //Slow blink comLed to indicate to user that hardware is connected to app and waiting for commands from app side
         digitalWrite(comLed,HIGH);
         delay(200);
         digitalWrite(comLed,LOW);
@@ -623,10 +625,12 @@ void codeForTask1(void * parameter) {
         }
         
         //Check and Set LED Brightness 
+        Serial.println("LED Brightness Set To: " + String(ledBrightnessVar));  
         ws2812fx.setBrightness(ledBrightnessVar);
         
         //Check and Set LED Color
-        ws2812fx.setColor(ledColorVar);
+        Serial.println("LED Color Set to RGB: " + String(redVar) + "," + String(greenVar) + "," + String(blueVar));  
+        ws2812fx.setColor(redVar,greenVar,blueVar);
         
         updateLedFlag = false; //Reset the updateLEDFlag
       }
