@@ -40,6 +40,8 @@ int rxHour;
 int rxMin;
 int rxSec;
 
+bool countdownInitFlag = false;
+
 bool updateLedFlag = false;
 int ledModeNum;
 int ledBrightnessVar;
@@ -66,6 +68,13 @@ int currentTube3pin;
 int currentTube4pin;
 int currentTube5pin;
 int currentTube6pin;
+
+int currentTube1Digit;
+int currentTube2Digit;
+int currentTube3Digit;
+int currentTube4Digit;
+int currentTube5Digit;
+int currentTube6Digit;
 
 //Creating an instance of the PCF2129 RTC Lib
 pcf2129rtc pcf2129rtcInstance(twimIntSDA, twimIntSCL); //(SDA,SCL)
@@ -328,6 +337,65 @@ void offNixieTube6() {
     expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,i),LOW);
   }
 }
+bool countdownInit() {
+  if(countdownInitFlag == true) {
+    //Get the pin numbers of the nixie digits to turn on for each tube
+    //getNixieExpanderPinInstance.getPinNumber(TUBE_NUM,BCD_DIGIT)
+    writeTube1pin = getNixieExpanderPinInstance.getPinNumber(1,pcf2129rtcInstance.readRtcHourBCD1());
+    writeTube2pin = getNixieExpanderPinInstance.getPinNumber(2,pcf2129rtcInstance.readRtcHourBCD0());
+    writeTube3pin = getNixieExpanderPinInstance.getPinNumber(3,pcf2129rtcInstance.readRtcMinBCD1());
+    writeTube4pin = getNixieExpanderPinInstance.getPinNumber(4,pcf2129rtcInstance.readRtcMinBCD0());
+    writeTube5pin = getNixieExpanderPinInstance.getPinNumber(5,(pcf2129rtcInstance.readRtcSecBCD1()));
+    writeTube6pin = getNixieExpanderPinInstance.getPinNumber(6,(pcf2129rtcInstance.readRtcSecBCD0()));   
+
+    currentTube1Digit = pcf2129rtcInstance.readRtcHourBCD1();
+    currentTube2Digit = pcf2129rtcInstance.readRtcHourBCD0();
+    currentTube3Digit = pcf2129rtcInstance.readRtcMinBCD1();
+    currentTube4Digit = pcf2129rtcInstance.readRtcMinBCD0();
+    currentTube5Digit = pcf2129rtcInstance.readRtcSecBCD1();
+    currentTube6Digit = pcf2129rtcInstance.readRtcSecBCD0();
+
+    //If the tube has to be updated...
+    if(writeTube1pin != currentTube1pin) {
+      offNixieTube1(); //Turn off all digits on that tube
+      expanderChip0.digitalWrite(writeTube1pin,HIGH); //Turn on the updated digit
+      //Turning off the tube and then updating the tube is done to prevent double digit display on the tube
+    }
+    if(writeTube2pin != currentTube2pin) {
+      offNixieTube2();
+      expanderChip0.digitalWrite(writeTube2pin,HIGH);
+    }
+    if(writeTube3pin != currentTube3pin) {
+      offNixieTube3();
+      expanderChip0.digitalWrite(writeTube3pin,HIGH); 
+    }
+    if(writeTube4pin != currentTube4pin) {
+      offNixieTube4();
+      expanderChip1.digitalWrite(writeTube4pin,HIGH);  
+    }
+    if(writeTube5pin != currentTube5pin) {
+      offNixieTube5();
+      expanderChip1.digitalWrite(writeTube5pin,HIGH);
+    }
+    if(writeTube6pin != currentTube6pin) {
+      offNixieTube6();
+      expanderChip1.digitalWrite(writeTube6pin,HIGH);
+    }
+
+    //Update the tube state (digit currently displayed in each tube)
+    currentTube1pin = writeTube1pin;
+    currentTube2pin = writeTube2pin;
+    currentTube3pin = writeTube3pin;
+    currentTube4pin = writeTube4pin;
+    currentTube5pin = writeTube5pin;
+    currentTube6pin = writeTube6pin;
+    
+    countdownInitFlag = false;
+
+    return true;
+  }
+  return false;
+}
 
 void cathodeProtection() {
   //A cathode protection a day keeps the cathode poisoning away!!!
@@ -382,104 +450,99 @@ void codeForTask0(void * parameter) {
         
         //Store the received data into a buffer for easy access!
         char recDataBuf[20] = ""; 
-        recDataString.toCharArray(recDataBuf,recDataString.length());
+        recDataString.toCharArray(recDataBuf,(recDataString.length()+1));
         
         //Process what kind of data it is (time/countdown/LED)and accordingly store to time/countdown/LED vars
         /*Standard format of data on Project Nixe Bluetooth Link:
          * A:BC:DE:FG
          *   A = T (Time Mode) / C (Countdown Mode) / L (Config LED)
-         * B-G = Mode Specific Data  
+         * B-C = Hours  
+         * D-E = Mins
+         * F-G = Secs
         */
-        //If Time Mode Initiated by App...
-        if(recDataBuf[0]=='T') {
-          Serial.println("Time Mode Initiated");
-          
-          //The below decoding is necessary as the time sent by the android system varies in format for diff times
-          if(recDataString.length() == 9) {
-            //Format: T:HH:MM:SS
-            rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
-            rxMin = (String(recDataBuf[5])+String(recDataBuf[6])).toInt();
-            rxSec = (String(recDataBuf[8])+String(recDataBuf[9])).toInt();
-          }
-          else if(recDataString.length() == 7) {
-            //Format: T:H:M:SS
-            rxHour = (String(recDataBuf[2])).toInt();
-            rxMin = (String(recDataBuf[4])).toInt();
-            rxSec = (String(recDataBuf[6])+String(recDataBuf[7])).toInt();
-          }
-          if(recDataString.length() == 8) {
-            if(recDataBuf[3] == ':') {
-              //Format: T:H:MM:SS
-              rxHour = (String(recDataBuf[2])).toInt();
-              rxMin = (String(recDataBuf[4])+String(recDataBuf[5])).toInt();
-              rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
+        
+        //Time decoding
+        //This decoding is necessary as the time sent by the android system varies in format for diff times
+        if(recDataString.length() == 10) {
+          //Format: T:HH:MM:SS or C:HH:MM:SS
+          rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
+          rxMin = (String(recDataBuf[5])+String(recDataBuf[6])).toInt();
+          rxSec = (String(recDataBuf[8])+String(recDataBuf[9])).toInt();
+        }
+        else if(recDataString.length() == 9) {
+          if(recDataBuf[4] == ':') {
+            if(recDataBuf[7] == ':') {
+              //Format: T:HH:MM:S or C:HH:MM:S
+              rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
+              rxMin = (String(recDataBuf[5])+String(recDataBuf[6])).toInt();
+              rxSec = (String(recDataBuf[8])).toInt();
             }
-            else if(recDataBuf[4] == ':') {
-              //Format: T:HH:M:SS     
+            else {
+              //Format: T:HH:M:SS or C:HH:M:SS
               rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
               rxMin = (String(recDataBuf[5])).toInt();
               rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
             }
           }
-
-        //Turn of all nixie tubes
-        //This to prevent displaying digits from the previous mode even after switching modes
-        offNixieTube1();
-        offNixieTube2();
-        offNixieTube3();
-        offNixieTube4();
-        offNixieTube5();
-        offNixieTube6();
-        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(1,0),HIGH);
-        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,0),HIGH);
-        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,0),HIGH);
-        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,0),HIGH);
-        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,0),HIGH);
-        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,0),HIGH);
-        currentTube1pin = 0;
-        currentTube2pin = 0;
-        currentTube3pin = 0;
-        currentTube4pin = 0;
-        currentTube5pin = 0;
-        currentTube6pin = 0;
+          else if (recDataBuf[3] == ':') {
+            //Format: T:H:MM:SS or C:H:MM:SS
+            rxHour = (String(recDataBuf[2])).toInt();
+            rxMin = (String(recDataBuf[4])+String(recDataBuf[5])).toInt();
+            rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
+          }
+        }
+        else if(recDataString.length() == 7) {
+          //Format: T:H:M:S or C:H:M:S 
+          rxHour = (String(recDataBuf[2])).toInt();
+          rxMin = (String(recDataBuf[4])).toInt();
+          rxSec = (String(recDataBuf[6])).toInt();
+        }
+        if(recDataString.length() == 8) {
+          if(recDataBuf[3] == ':') {
+            if(recDataBuf[5] == ':') {
+              //Format: T:H:M:SS or C:H:M:SS  
+              rxHour = (String(recDataBuf[2])).toInt();
+              rxMin = (String(recDataBuf[4])).toInt();
+              rxSec = (String(recDataBuf[6])+String(recDataBuf[7])).toInt();
+            }
+            else {
+              //Format: T:H:MM:S or C:H:MM:S
+              rxHour = (String(recDataBuf[2])).toInt();
+              rxMin = (String(recDataBuf[4])+String(recDataBuf[5])).toInt();
+              rxSec = (String(recDataBuf[7])+String(recDataBuf[8])).toInt();
+            }
+          }
+          else if(recDataBuf[4] == ':') {
+            //Format: T:HH:M:S or C:HH:M:S
+            Serial.println("2");    
+            rxHour = (String(recDataBuf[2])+String(recDataBuf[3])).toInt();
+            rxMin = (String(recDataBuf[5])).toInt();
+            rxSec = (String(recDataBuf[7])).toInt();
+          }
+        }
         
-        //Set updateDisplayFlag to alert core 1 to update the display
-        updateDisplayFlag = true;
+        //If Time Mode Initiated by App...
+        if(recDataBuf[0]=='T') {  
+          Serial.println("Time Mode Initiated");
 
-        //Set setHardwareMode to true indicating to core 1 that user has activated time mode
-        setHardwareMode = true;
+          //Set setHardwareMode to true indicating to core 1 that user has activated time mode
+          setHardwareMode = true;
+
+          //Set updateDisplayFlag to alert core 1 to update the display
+          updateDisplayFlag = true;
         }
         
         //If Countdown Mode Initiated by App...
         else if(recDataBuf[0]=='C') {
           Serial.println("Countdown Mode Initiated");
 
-          //Turn off all nixie tubes > Write 0 to all tubes > Update current tube state vars
-          //This to prevent displaying digits from the previous mode even after switching modes
-          offNixieTube1();
-          offNixieTube2();
-          offNixieTube3();
-          offNixieTube4();
-          offNixieTube5();
-          offNixieTube6();
-          expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(1,0),HIGH);
-          expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,0),HIGH);
-          expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,0),HIGH);
-          expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,0),HIGH);
-          expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,0),HIGH);
-          expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,0),HIGH);
-          currentTube1pin = 0;
-          currentTube2pin = 0;
-          currentTube3pin = 0;
-          currentTube4pin = 0;
-          currentTube5pin = 0;
-          currentTube6pin = 0;
-          
+          //Set setHardwareMode to false indicating to core 1 that user has activated countdown mode
+          setHardwareMode = false;
+
           //Set updateDisplayFlag to alert core 1 to update the display
           updateDisplayFlag = true;
 
-          //Set setHardwareMode to false indicating to core 1 that user has activated countdown mode
-          setHardwareMode = false;
+          countdownInitFlag = true;
         }
         
         //If RGB LED Config Changed by App...
@@ -585,7 +648,7 @@ void codeForTask1(void * parameter) {
         writeTube4pin = getNixieExpanderPinInstance.getPinNumber(4,pcf2129rtcInstance.readRtcMinBCD0());
         writeTube5pin = getNixieExpanderPinInstance.getPinNumber(5,pcf2129rtcInstance.readRtcSecBCD1());
         writeTube6pin = getNixieExpanderPinInstance.getPinNumber(6,pcf2129rtcInstance.readRtcSecBCD0());      
-   
+        
         //If the tube has to be updated...
         if(writeTube1pin != currentTube1pin) {
           offNixieTube1(); //Turn off all digits on that tube
@@ -624,18 +687,107 @@ void codeForTask1(void * parameter) {
       
       //If countdown mode is activated by user...
       else {
-        offNixieTube1();
-        offNixieTube2();
-        offNixieTube3();
-        offNixieTube4();
-        offNixieTube5();
-        offNixieTube6();
-        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(1,3),HIGH); //Turn on the updated digit
-        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,3),HIGH); //Turn on the updated digit
-        expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,3),HIGH); //Turn on the updated digit
-        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,3),HIGH); //Turn on the updated digit
-        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,3),HIGH); //Turn on the updated digit
-        expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,3),HIGH); //Turn on the updated digit
+        bool initRunFlag = countdownInit();
+        
+        //minus tube by tube
+        if(initRunFlag == false) {
+          //If Tube 6 Digit is more than 0
+          if(currentTube6Digit > 0) {
+            offNixieTube6();
+            expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,currentTube6Digit-1),HIGH);
+            currentTube6Digit -= 1;
+          }
+          
+          else if(currentTube6Digit == 0) {
+            if(currentTube1Digit == 0 && currentTube2Digit == 0 && currentTube3Digit == 0 && currentTube4Digit == 0 && currentTube5Digit == 0 && currentTube6Digit == 0) {
+              //END OF COUNTDOWN!!!
+              while(1) {
+                cathodeProtection();
+              }
+            }
+            
+            else if(currentTube2Digit == 0 && currentTube3Digit == 0 && currentTube4Digit == 0 && currentTube5Digit == 0 && currentTube6Digit == 0) {
+              //stuff
+              offNixieTube1();
+              offNixieTube2();
+              offNixieTube3();
+              offNixieTube4();
+              offNixieTube5();
+              offNixieTube6();
+              expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(1,currentTube1Digit-1),HIGH);
+              expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,9),HIGH);
+              expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,5),HIGH);
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,9),HIGH);
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,5),HIGH); //ITS SHOWING 4 THO!!!
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,9),HIGH);
+              currentTube1Digit -= 1;
+              currentTube2Digit = 9;
+              currentTube3Digit = 5;
+              currentTube4Digit = 9;
+              currentTube5Digit = 5;
+              currentTube6Digit = 9;
+            }
+            
+            else if(currentTube3Digit == 0 && currentTube4Digit == 0 && currentTube5Digit == 0 && currentTube6Digit == 0) {
+              //stuff
+              offNixieTube2();
+              offNixieTube3();
+              offNixieTube4();
+              offNixieTube5();
+              offNixieTube6();
+              expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,currentTube2Digit-1),HIGH);
+              expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,5),HIGH);
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,9),HIGH);
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,5),HIGH); //ITS SHOWING 4 THO!!!
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,9),HIGH);
+              currentTube2Digit -= 1;
+              currentTube3Digit = 5;
+              currentTube4Digit = 9;
+              currentTube5Digit = 5;
+              currentTube6Digit = 9;
+            }
+            
+            else if(currentTube4Digit == 0 && currentTube5Digit == 0 && currentTube6Digit == 0) {
+              //stuff
+              offNixieTube3();
+              offNixieTube4();
+              offNixieTube5();
+              offNixieTube6();
+              expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,currentTube3Digit-1),HIGH);
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,9),HIGH);
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,5),HIGH); //ITS SHOWING 4 THO!!!
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,9),HIGH);
+              currentTube3Digit -= 1;
+              currentTube4Digit = 9;
+              currentTube5Digit = 5;
+              currentTube6Digit = 9;
+            }
+            
+            else if(currentTube6Digit == 0 && currentTube5Digit == 0) {
+              offNixieTube4();
+              offNixieTube5();
+              offNixieTube6();
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,currentTube4Digit-1),HIGH);
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,5),HIGH); //ITS SHOWING 4 THO!!!
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,9),HIGH);
+              currentTube4Digit -= 1;
+              currentTube5Digit = 5;
+              currentTube6Digit = 9;
+              
+            }
+            //If only Tube 6 is 0...
+            else {
+              offNixieTube5();
+              offNixieTube6();
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,currentTube5Digit-1),HIGH);
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,9),HIGH);
+              currentTube5Digit -= 1;
+              currentTube6Digit = 9;
+            }
+          }
+        }
+        
+        //run cathode protection at 0!!!
       }
   
       //Reset interrupt secIntFlag
@@ -653,7 +805,13 @@ void codeForTask1(void * parameter) {
       //If the updateDisplaFlag has been set, it means that the hardware has received a command from the user 
       //through the mobile app to update the display
       if(updateDisplayFlag == true) {
-        pcf2129rtcInstance.updateCurrentTimeToRTC(rxHour, rxMin, rxSec); //(HOUR,MIN,SEC)
+        if(setHardwareMode == true) {
+          pcf2129rtcInstance.updateCurrentTimeToRTC(rxHour, rxMin, rxSec); //(HOUR,MIN,SEC)
+        }
+        else {
+          pcf2129rtcInstance.updateCurrentTimeToRTC(rxHour, rxMin, rxSec-1); //(HOUR,MIN,SEC)
+        }
+        
         updateDisplayFlag = false; //Reset the updateDisplayFlag
       }
       
