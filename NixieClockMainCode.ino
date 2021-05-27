@@ -35,12 +35,10 @@ TaskHandle_t Task1; //Runs on core 1
 //-----------------------
 bool setHardwareMode= true; //true = Time Mode | false = Countdown Mode | Default = Time Mode
 
-bool updateDisplayFlag = false; 
+bool updateRtcFlag = false; //Alerts core 1 that RTC has to be updated
 int rxHour; 
 int rxMin;
 int rxSec;
-
-bool countdownInitFlag = false;
 
 bool updateLedFlag = false;
 int ledModeNum;
@@ -49,11 +47,13 @@ int redVar;
 int greenVar;
 int blueVar;
 
+bool countdownInitFlag = false; //Prevents the countdown initialize function from running more than once
+
 unsigned long catProInitTime; //Cathode Protection Initial Time
 
 //Init Nixie tube state vars:
 //---------------------------
-//Nixie digit to be written to
+//Nixie tube digit's pin to be activated
 int writeTube1pin;
 int writeTube2pin;
 int writeTube3pin; 
@@ -61,7 +61,7 @@ int writeTube4pin;
 int writeTube5pin;
 int writeTube6pin;
  
-//Nixie digit that is currently on
+//Nixie tube digit's pin that is currently active
 int currentTube1pin;
 int currentTube2pin;
 int currentTube3pin;
@@ -69,6 +69,7 @@ int currentTube4pin;
 int currentTube5pin;
 int currentTube6pin;
 
+//Nixie tube digit (not pin!!!) that is currently on 
 int currentTube1Digit;
 int currentTube2Digit;
 int currentTube3Digit;
@@ -218,7 +219,6 @@ IRAM_ATTR void pwrSubSysMonitor() {
   }
 }
 
-//THIS FUNCTION IS INCOMPLETE AND UNTESTED
 //This function is called by the pwrSubSysMonitor() when there is a blackout on the 5V rail
 //This function will switch off the 5V and 170V power supplies and turn off the 6 Nixie Tubes and RGB LEDs... 
 //This puts the hardware into safe mode, thereby protecting the hardware against further damage!
@@ -348,6 +348,7 @@ bool countdownInit() {
     writeTube5pin = getNixieExpanderPinInstance.getPinNumber(5,(pcf2129rtcInstance.readRtcSecBCD1()));
     writeTube6pin = getNixieExpanderPinInstance.getPinNumber(6,(pcf2129rtcInstance.readRtcSecBCD0()));   
 
+    //Update the current tube digit vars
     currentTube1Digit = pcf2129rtcInstance.readRtcHourBCD1();
     currentTube2Digit = pcf2129rtcInstance.readRtcHourBCD0();
     currentTube3Digit = pcf2129rtcInstance.readRtcMinBCD1();
@@ -355,45 +356,37 @@ bool countdownInit() {
     currentTube5Digit = pcf2129rtcInstance.readRtcSecBCD1();
     currentTube6Digit = pcf2129rtcInstance.readRtcSecBCD0();
 
-    //If the tube has to be updated...
-    if(writeTube1pin != currentTube1pin) {
-      offNixieTube1(); //Turn off all digits on that tube
-      expanderChip0.digitalWrite(writeTube1pin,HIGH); //Turn on the updated digit
-      //Turning off the tube and then updating the tube is done to prevent double digit display on the tube
-    }
-    if(writeTube2pin != currentTube2pin) {
-      offNixieTube2();
-      expanderChip0.digitalWrite(writeTube2pin,HIGH);
-    }
-    if(writeTube3pin != currentTube3pin) {
-      offNixieTube3();
-      expanderChip0.digitalWrite(writeTube3pin,HIGH); 
-    }
-    if(writeTube4pin != currentTube4pin) {
-      offNixieTube4();
-      expanderChip1.digitalWrite(writeTube4pin,HIGH);  
-    }
-    if(writeTube5pin != currentTube5pin) {
-      offNixieTube5();
-      expanderChip1.digitalWrite(writeTube5pin,HIGH);
-    }
-    if(writeTube6pin != currentTube6pin) {
-      offNixieTube6();
-      expanderChip1.digitalWrite(writeTube6pin,HIGH);
-    }
+    //Turn off all digits on that tube
+    offNixieTube1(); 
+    offNixieTube2();
+    offNixieTube3();
+    offNixieTube4();
+    offNixieTube5();
+    offNixieTube6();
+    
+    //Turn on the updated digit
+    expanderChip0.digitalWrite(writeTube1pin,HIGH); 
+    expanderChip0.digitalWrite(writeTube2pin,HIGH);
+    expanderChip0.digitalWrite(writeTube3pin,HIGH); 
+    expanderChip1.digitalWrite(writeTube4pin,HIGH);  
+    expanderChip1.digitalWrite(writeTube5pin,HIGH);
+    expanderChip1.digitalWrite(writeTube6pin,HIGH);
 
-    //Update the tube state (digit currently displayed in each tube)
+    //Update the current tube pin state vars
     currentTube1pin = writeTube1pin;
     currentTube2pin = writeTube2pin;
     currentTube3pin = writeTube3pin;
     currentTube4pin = writeTube4pin;
     currentTube5pin = writeTube5pin;
     currentTube6pin = writeTube6pin;
-    
+
+    //Reset the countdownInitFlag indicating that the countdownInit function has already run once
     countdownInitFlag = false;
 
+    //Return true to indicate that the countdownInit function has just run
     return true;
   }
+  //Return false to indicate that the coundownInit function has already run and will not run again unless MCU reset
   return false;
 }
 
@@ -528,8 +521,8 @@ void codeForTask0(void * parameter) {
           //Set setHardwareMode to true indicating to core 1 that user has activated time mode
           setHardwareMode = true;
 
-          //Set updateDisplayFlag to alert core 1 to update the display
-          updateDisplayFlag = true;
+          //Set updateRtcFlag to alert core 1 to update the display
+          updateRtcFlag = true;
         }
         
         //If Countdown Mode Initiated by App...
@@ -539,9 +532,10 @@ void codeForTask0(void * parameter) {
           //Set setHardwareMode to false indicating to core 1 that user has activated countdown mode
           setHardwareMode = false;
 
-          //Set updateDisplayFlag to alert core 1 to update the display
-          updateDisplayFlag = true;
+          //Set updateRtcFlag to alert core 1 to update the display
+          updateRtcFlag = true;
 
+          //set the countdownInitFlag to run the countdownInit function once
           countdownInitFlag = true;
         }
         
@@ -676,7 +670,7 @@ void codeForTask1(void * parameter) {
           expanderChip1.digitalWrite(writeTube6pin,HIGH);
         }
     
-        //Update the tube state (digit currently displayed in each tube)
+        //Update the current tube pin state vars
         currentTube1pin = writeTube1pin;
         currentTube2pin = writeTube2pin;
         currentTube3pin = writeTube3pin;
@@ -687,9 +681,13 @@ void codeForTask1(void * parameter) {
       
       //If countdown mode is activated by user...
       else {
-        bool initRunFlag = countdownInit();
+        //Run countdownInit function once (This is done to display the countdown starting time set by the user)
+        //Countdown mode uses the RTC only in the countdownInit function, after which it does not use the RTC
+        //Once initialized... Countdown mode relies on tube pin state vars to countdown
+        bool initRunFlag = countdownInit(); //Returns 1 if function has just run | Returns 0 if function has already run previously
         
-        //minus tube by tube
+        //Countdown using tube pin state vars... No RTC involved!!!
+        //If countdown mode is initialized...
         if(initRunFlag == false) {
           //If Tube 6 Digit is more than 0
           if(currentTube6Digit > 0) {
@@ -697,15 +695,18 @@ void codeForTask1(void * parameter) {
             expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,currentTube6Digit-1),HIGH);
             currentTube6Digit -= 1;
           }
-          
+
+          //If tube 6 is 0'ed
           else if(currentTube6Digit == 0) {
+            //If tube 1,2,3,4,5,6 are 0'ed...
             if(currentTube1Digit == 0 && currentTube2Digit == 0 && currentTube3Digit == 0 && currentTube4Digit == 0 && currentTube5Digit == 0 && currentTube6Digit == 0) {
               //END OF COUNTDOWN!!!
-              while(1) {
+              while(updateRtcFlag == false) {
                 cathodeProtection();
               }
             }
-            
+
+            //If tube 2,3,4,5,6 are 0'ed...
             else if(currentTube2Digit == 0 && currentTube3Digit == 0 && currentTube4Digit == 0 && currentTube5Digit == 0 && currentTube6Digit == 0) {
               //stuff
               offNixieTube1();
@@ -718,7 +719,7 @@ void codeForTask1(void * parameter) {
               expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(2,9),HIGH);
               expanderChip0.digitalWrite(getNixieExpanderPinInstance.getPinNumber(3,5),HIGH);
               expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(4,9),HIGH);
-              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,5),HIGH); //ITS SHOWING 4 THO!!!
+              expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(5,5),HIGH);
               expanderChip1.digitalWrite(getNixieExpanderPinInstance.getPinNumber(6,9),HIGH);
               currentTube1Digit -= 1;
               currentTube2Digit = 9;
@@ -727,7 +728,8 @@ void codeForTask1(void * parameter) {
               currentTube5Digit = 5;
               currentTube6Digit = 9;
             }
-            
+
+            //If tube 3,4,5,6 are 0'ed...
             else if(currentTube3Digit == 0 && currentTube4Digit == 0 && currentTube5Digit == 0 && currentTube6Digit == 0) {
               //stuff
               offNixieTube2();
@@ -746,7 +748,8 @@ void codeForTask1(void * parameter) {
               currentTube5Digit = 5;
               currentTube6Digit = 9;
             }
-            
+
+            //If tube 4,5,6 are 0'ed...
             else if(currentTube4Digit == 0 && currentTube5Digit == 0 && currentTube6Digit == 0) {
               //stuff
               offNixieTube3();
@@ -762,8 +765,9 @@ void codeForTask1(void * parameter) {
               currentTube5Digit = 5;
               currentTube6Digit = 9;
             }
-            
-            else if(currentTube6Digit == 0 && currentTube5Digit == 0) {
+
+            //If tube 5,6 are 0'ed...
+            else if(currentTube5Digit == 0 && currentTube6Digit == 0) {
               offNixieTube4();
               offNixieTube5();
               offNixieTube6();
@@ -775,7 +779,7 @@ void codeForTask1(void * parameter) {
               currentTube6Digit = 9;
               
             }
-            //If only Tube 6 is 0...
+            //If only tube 6 is 0'ed...
             else {
               offNixieTube5();
               offNixieTube6();
@@ -786,8 +790,6 @@ void codeForTask1(void * parameter) {
             }
           }
         }
-        
-        //run cathode protection at 0!!!
       }
   
       //Reset interrupt secIntFlag
@@ -802,17 +804,34 @@ void codeForTask1(void * parameter) {
     //Code inside the else loop will execute if the core is not busy driving the nixies
     //Priority is given to driving the nixies and cathode protection!!!
     else {
-      //If the updateDisplaFlag has been set, it means that the hardware has received a command from the user 
+      //If the updateRtcFlag has been set, it means that the hardware has received a command from the user 
       //through the mobile app to update the display
-      if(updateDisplayFlag == true) {
+      if(updateRtcFlag == true) {
+        //If time mode is activated by user...
         if(setHardwareMode == true) {
           pcf2129rtcInstance.updateCurrentTimeToRTC(rxHour, rxMin, rxSec); //(HOUR,MIN,SEC)
         }
+        //If countdown mode is activated by user...
         else {
-          pcf2129rtcInstance.updateCurrentTimeToRTC(rxHour, rxMin, rxSec-1); //(HOUR,MIN,SEC)
+          //-1 the rxSec cuz in the time taken by the rtc to update the nixie tube... 1s has already passed!!!
+          if(rxSec > 0) {
+            pcf2129rtcInstance.updateCurrentTimeToRTC(rxHour, rxMin, rxSec-1); //(HOUR,MIN,SEC)
+          }
+          //Boundary Conditions
+          //If rxSec is already 0, then rxSec-1 will be -1, so write 59
+          else if(rxSec == 0){
+            if(rxMin > 0) {
+              pcf2129rtcInstance.updateCurrentTimeToRTC(rxHour, rxMin-1, 59); //(HOUR,MIN,SEC)
+            }
+            //If rxMin and rxSec are already 0, then rxSec-1 and rxMin-1 will be -1, so write 59
+            else if(rxMin == 0) {
+              if(rxHour > 0) {
+                pcf2129rtcInstance.updateCurrentTimeToRTC(rxHour-1, 59, 59); //(HOUR,MIN,SEC)
+              }
+            }
+          }
         }
-        
-        updateDisplayFlag = false; //Reset the updateDisplayFlag
+        updateRtcFlag = false; //Reset the updateRtcFlag
       }
       
       //Drive the RGB LEDs
